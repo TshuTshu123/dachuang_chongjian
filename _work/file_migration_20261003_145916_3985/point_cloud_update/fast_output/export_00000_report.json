@@ -1,0 +1,135 @@
+{
+  "vertices": 30043,
+  "triangles": 60000,
+  "connected_components": 6,
+  "largest_components": [
+    {
+      "triangles": 54761,
+      "area_m2": 2.476616700105158
+    },
+    {
+      "triangles": 2396,
+      "area_m2": 0.21491048715078523
+    },
+    {
+      "triangles": 2483,
+      "area_m2": 0.1703868452779364
+    },
+    {
+      "triangles": 338,
+      "area_m2": 0.024861729845872083
+    },
+    {
+      "triangles": 8,
+      "area_m2": 0.0007771813839578902
+    },
+    {
+      "triangles": 14,
+      "area_m2": 0.00022548690359260536
+    }
+  ],
+  "boundary_edges": 78,
+  "edges_with_more_than_two_faces": 0,
+  "closed_edge_manifold": false,
+  "vertex_manifold": true,
+  "orientation_succeeded": true,
+  "self_intersecting": false,
+  "self_intersections_checked": true,
+  "watertight": false,
+  "volume_m3_single_closed_component": null,
+  "geometry_gate_passed": false,
+  "color": {
+    "preserved": true,
+    "source": "original finite unique input points",
+    "neighbors": 1,
+    "transfer": "nearest RGB",
+    "invalid_color_points_ignored": 0,
+    "vertex_to_original_point": {
+      "median_mm": 1.7635986622814366,
+      "p95_mm": 23.729219773787857,
+      "max_mm": 189.59078209354078
+    },
+    "vertices_more_than_10mm_from_observation": 2845
+  },
+  "processed_observations_to_mesh": {
+    "median_mm": 1.1715146247297525,
+    "p95_mm": 4.546619392931458,
+    "max_mm": 60.433290898799896
+  },
+  "sampled_mesh_to_processed_observations": {
+    "median_mm": 2.1952874486298986,
+    "p95_mm": 79.63832816867237,
+    "max_mm": 197.82075047968684
+  },
+  "open3d_version": "0.19.0",
+  "settings": {
+    "input": "D:\\SSYJS-study\\sanweichongjian\\pythonProject\\PointToModel\\export_00000.ply",
+    "out": "C:\\Users\\lenovo\\Documents\\Codex\\2026-10-03\\s\\work\\point_cloud_update\\fast_output",
+    "input_unit": "mm",
+    "output_unit": "input",
+    "preset": "fast",
+    "voxel": 0.004,
+    "depth": 8,
+    "faces": 60000,
+    "threads": 8,
+    "outlier_neighbors": 20,
+    "outlier_std": 2.5,
+    "normal_radius": 0.012,
+    "normal_max_nn": 40,
+    "orient_k": 30,
+    "poisson_scale": 1.1,
+    "trim_quantile": 0.0,
+    "keep_largest": false,
+    "smooth_iterations": 0,
+    "color_k": 1,
+    "qa_samples": 10000,
+    "skip_self_intersections": false,
+    "save_intermediates": true,
+    "preview_normals": false,
+    "no_vis": true,
+    "overwrite": false
+  },
+  "input_points": 493522,
+  "finite_unique_points": 493522,
+  "voxel_points": 213727,
+  "filtered_points": 212676,
+  "input_unit": "mm",
+  "output_coordinate_unit": "mm",
+  "processing_coordinate_unit": "m",
+  "mesh_path": "C:\\Users\\lenovo\\Documents\\Codex\\2026-10-03\\s\\work\\point_cloud_update\\fast_output\\export_00000_mesh.ply",
+  "meter_coordinate_origin": [
+    0.49511106872558597,
+    0.08190870666503908,
+    0.9311829833984375
+  ],
+  "extent_m": [
+    1.7524692687988281,
+    1.118134979248047,
+    0.9981494140625
+  ],
+  "median_sampled_point_spacing_mm": 2.961708963345697,
+  "finest_poisson_cube_cell_mm": 7.530141389369966,
+  "triangles_before_decimation": 128910,
+  "target_triangles": 60000,
+  "timings_seconds": {
+    "read_and_clean": 0.279,
+    "downsample_and_filter": 0.452,
+    "estimate_normals": 0.224,
+    "orient_normals": 8.933,
+    "poisson_cpu": 0.982,
+    "postprocess_and_decimate": 0.631,
+    "topology_checks": 11.384,
+    "original_rgb_transfer": 0.194,
+    "distance_qa": 0.154,
+    "write_colored_ply": 0.156
+  },
+  "total_before_visualization_seconds": 23.389,
+  "qa_note": "Distances use processed observations, not ground truth. PLY does not store units.",
+  "manual_checks": [
+    "Inferred holes and anatomy",
+    "Nearby finger/limb bridges",
+    "Disconnected components",
+    "Color on inferred surfaces",
+    "Print scale, minimum thickness, orientation and supports"
+  ]
+}

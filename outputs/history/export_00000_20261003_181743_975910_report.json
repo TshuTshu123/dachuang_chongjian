@@ -1,0 +1,119 @@
+{
+  "vertices": 50004,
+  "triangles": 100000,
+  "connected_components": 1,
+  "largest_components": [
+    {
+      "triangles": 100000,
+      "area_m2": 2.5251551886811736
+    }
+  ],
+  "boundary_edges": 34,
+  "edges_with_more_than_two_faces": 2,
+  "closed_edge_manifold": false,
+  "vertex_manifold": false,
+  "orientation_succeeded": false,
+  "self_intersecting": false,
+  "self_intersections_checked": true,
+  "watertight": false,
+  "volume_m3_single_closed_component": null,
+  "geometry_gate_passed": false,
+  "color": {
+    "preserved": true,
+    "source": "original finite unique input points",
+    "neighbors": 1,
+    "transfer": "nearest RGB",
+    "invalid_color_points_ignored": 0,
+    "vertex_to_original_point": {
+      "median_mm": 1.5459234116125127,
+      "p95_mm": 6.120786304767022,
+      "max_mm": 123.29452782641049
+    },
+    "vertices_more_than_10mm_from_observation": 1671
+  },
+  "processed_observations_to_mesh": {
+    "median_mm": 0.9880084544420242,
+    "p95_mm": 3.8906893460080023,
+    "max_mm": 597.9562997817993
+  },
+  "sampled_mesh_to_processed_observations": {
+    "median_mm": 1.7609505367315275,
+    "p95_mm": 34.999030853027385,
+    "max_mm": 118.77937581616564
+  },
+  "open3d_version": "0.19.0",
+  "settings": {
+    "input": "D:\\SSYJS-study\\sanweichongjian\\pythonProject\\PointToModel\\export_00000.ply",
+    "out": "D:\\SSYJS-study\\sanweichongjian\\pythonProject\\PointToModel\\chongjian",
+    "input_unit": "mm",
+    "output_unit": "input",
+    "preset": "balanced",
+    "voxel": 0.003,
+    "depth": 9,
+    "faces": 100000,
+    "threads": 8,
+    "outlier_neighbors": 20,
+    "outlier_std": 2.5,
+    "normal_radius": 0.012,
+    "normal_max_nn": 40,
+    "orient_k": 30,
+    "poisson_scale": 1.1,
+    "trim_quantile": 0.0,
+    "keep_largest": true,
+    "smooth_iterations": 0,
+    "color_k": 1,
+    "qa_samples": 10000,
+    "skip_self_intersections": false,
+    "save_intermediates": false,
+    "preview_normals": false,
+    "no_vis": false,
+    "overwrite": false
+  },
+  "input_points": 493522,
+  "finite_unique_points": 493522,
+  "voxel_points": 304985,
+  "filtered_points": 303619,
+  "input_unit": "mm",
+  "output_coordinate_unit": "mm",
+  "processing_coordinate_unit": "m",
+  "mesh_path": "D:\\SSYJS-study\\sanweichongjian\\pythonProject\\PointToModel\\chongjian\\export_00000_20261003_181743_975910_mesh.ply",
+  "meter_coordinate_origin": [
+    0.4954181518554688,
+    0.0817751922607422,
+    0.958383285522461
+  ],
+  "extent_m": [
+    1.7518551025390625,
+    1.1178679504394533,
+    0.9337522277832031
+  ],
+  "median_sampled_point_spacing_mm": 2.2883524493986376,
+  "finest_poisson_cube_cell_mm": 3.7637511968612674,
+  "triangles_before_decimation": 479734,
+  "target_triangles": 100000,
+  "components_before_selection": 6,
+  "removed_non_main_component_faces": 13230,
+  "highres_closed_edge_manifold": false,
+  "highres_vertex_manifold": true,
+  "timings_seconds": {
+    "read_and_clean": 0.275,
+    "downsample_and_filter": 0.663,
+    "estimate_normals": 0.352,
+    "orient_normals": 17.633,
+    "poisson_cpu": 3.717,
+    "postprocess_and_decimate": 7.779,
+    "topology_checks": 33.881,
+    "original_rgb_transfer": 0.226,
+    "distance_qa": 0.31,
+    "write_colored_ply": 0.053
+  },
+  "total_before_visualization_seconds": 64.893,
+  "qa_note": "Distances use all processed observations, not ground truth. When keep-largest removes fragments, point-to-mesh maxima can include those removed fragments. Inferred surfaces have no true observed color. PLY does not store units.",
+  "manual_checks": [
+    "Inferred holes and anatomy",
+    "Nearby finger/limb bridges",
+    "Disconnected components",
+    "Color on inferred surfaces",
+    "Print scale, minimum thickness, orientation and supports"
+  ]
+}

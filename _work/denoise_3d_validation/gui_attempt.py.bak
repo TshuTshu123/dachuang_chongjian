@@ -1,0 +1,360 @@
+"""Interactive, synchronized 3D point-cloud comparison; Open3D 0.19.0.
+
+Run directly in PyCharm. This only preprocesses and visualizes the input;
+it does not run Poisson or discard connected components. Original RGB is
+shown; voxel colors are Open3D's averages. Coordinates are not overwritten.
+"""
+
+import os
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent
+os.environ.setdefault("MPLCONFIGDIR", str(ROOT / "_work" / "denoise_preview" / "mpl"))
+import argparse
+import copy
+import json
+import time
+
+import numpy as np
+import open3d as o3d
+from open3d.visualization import gui, rendering
+
+DEFAULT_INPUT = Path(r"D:\SSYJS-study\sanweichongjian\pythonProject\PointToModel\export_00000.ply")
+
+
+def parse_args():
+    defaults = {"voxel": 0.003, "outlier_neighbors": 20, "outlier_std": 2.5}
+    report = ROOT / "export_00000_report.json"
+    if report.is_file():
+        defaults.update(json.loads(report.read_text(encoding="utf-8")).get("settings", {}))
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("input", nargs="?", type=Path, default=DEFAULT_INPUT)
+    parser.add_argument("--input-unit", choices=["mm", "m"], default="mm")
+    parser.add_argument("--voxel-mm", type=float, default=defaults["voxel"] * 1000,
+                        help="Practical range 2..5 mm, recommended 3; larger is faster, less detail.")
+    parser.add_argument("--neighbors", type=int, default=defaults["outlier_neighbors"],
+                        help="Practical range 15..40, recommended 20; >=3 required.")
+    parser.add_argument("--std", type=float, default=defaults["outlier_std"],
+                        help="Practical range 2..3, recommended 2.5; smaller filters more.")
+    parser.add_argument("--point-size", type=float, default=2.0,
+                        help="1..6 screen pixels, recommended 2; changes display only.")
+    parser.add_argument("--legacy", action="store_true", help="Classic OpenGL viewer fallback.")
+    parser.add_argument("--smoke-test", action="store_true", help=argparse.SUPPRESS)
+    args = parser.parse_args()
+    if not args.input.is_file():
+        parser.error(f"Input not found: {args.input}")
+    if not np.isfinite([args.voxel_mm, args.std, args.point_size]).all():
+        parser.error("Parameters must be finite")
+    if args.voxel_mm <= 0 or args.std <= 0 or args.neighbors < 3:
+        parser.error("voxel-mm > 0, std > 0, neighbors >= 3")
+    if not 1 <= args.point_size <= 6:
+        parser.error("point-size must be 1..6 pixels")
+    return args
+
+
+def prepare_clouds(args):
+    started = time.perf_counter()
+    raw = o3d.io.read_point_cloud(str(args.input))
+    if not raw.has_points():
+        raise RuntimeError("Empty input point cloud")
+    raw_count = len(raw.points)
+    raw.remove_non_finite_points()
+    raw.remove_duplicated_points()
+    raw.scale(0.001 if args.input_unit == "mm" else 1.0, center=np.zeros(3))
+    down = raw.voxel_down_sample(args.voxel_mm * 0.001)
+    if len(down.points) <= args.neighbors:
+        raise RuntimeError("Too few points after downsampling; check units/voxel size")
+    kept, indices = down.remove_statistical_outlier(nb_neighbors=args.neighbors, std_ratio=args.std)
+    removed = down.select_by_index(indices, invert=True)
+    if not kept.has_points():
+        raise RuntimeError("No points left after filtering")
+    # Common translation improves rendering precision; all views share coordinates.
+    origin = (raw.get_min_bound() + raw.get_max_bound()) / 2
+    for cloud in [raw, down, kept, removed]:
+        cloud.translate(-origin)
+    gray = copy.deepcopy(kept).paint_uniform_color([0.60, 0.63, 0.68])
+    red = copy.deepcopy(removed).paint_uniform_color([1.0, 0.07, 0.04])
+    stats = {"original": raw_count, "finite_unique": len(raw.points), "downsampled": len(down.points),
+             "kept": len(kept.points), "removed": len(removed.points),
+             "preprocess_seconds": round(time.perf_counter() - started, 3)}
+    print(json.dumps(stats, ensure_ascii=False, indent=2), flush=True)
+    print(f"Voxel={args.voxel_mm:g} mm, SOR neighbors={args.neighbors}, std={args.std:g}", flush=True)
+    print("Voxel point reduction is resampling. Red SOR flags are not noise ground truth.", flush=True)
+    return {"raw": raw, "down": down, "kept": kept, "gray": gray, "red": red,
+            "stats": stats, "bounds": raw.get_axis_aligned_bounding_box()}
+
+
+class ComparisonWindow:
+    def __init__(self, clouds, args):
+        self.clouds, self.args = clouds, args
+        self.app = gui.Application.instance
+        self.window = self.app.create_window("点云去噪 · 3D 同步对比", 1720, 940)
+        self.scenes, self.labels = [], []
+        self.active = 0
+        self.initialized = False
+        self.last_cameras = []
+        self.material = rendering.MaterialRecord()
+        self.material.shader = "defaultUnlit"
+        self.material.point_size = args.point_size
+        self.red_material = rendering.MaterialRecord()
+        self.red_material.shader = "defaultUnlit"
+        self.red_material.point_size = max(4, args.point_size * 2)
+        em = self.window.theme.font_size
+        self.toolbar = gui.Horiz(0.5 * em, gui.Margins(4, 4, 4, 4))
+        self.sync = gui.Checkbox("同步视角")
+        self.sync.checked = True
+        self.sync.set_on_checked(self.on_sync)
+        self.toolbar.add_child(self.sync)
+        reset = gui.Button("重置视角")
+        reset.set_on_clicked(self.reset_camera)
+        self.toolbar.add_child(reset)
+        self.toolbar.add_child(gui.Label("点大小"))
+        self.slider = gui.Slider(gui.Slider.DOUBLE)
+        self.slider.set_limits(1, 6)
+        self.slider.double_value = args.point_size
+        self.slider.set_on_value_changed(self.set_point_size)
+        self.toolbar.add_child(self.slider)
+        self.toolbar.add_child(gui.Label("右栏显示"))
+        self.mode = gui.Combobox()
+        for text in ["去噪后 RGB", "保留灰点 + 删除红点", "仅显示删除红点"]:
+            self.mode.add_item(text)
+        self.mode.set_on_selection_changed(self.set_mode)
+        self.toolbar.add_child(self.mode)
+        self.window.add_child(self.toolbar)
+        titles = [f"原始彩色点云\n{len(clouds['raw'].points):,} 点",
+                  f"{args.voxel_mm:g} mm 降采样后\n{len(clouds['down'].points):,} 点",
+                  f"统计去噪后\n{len(clouds['kept'].points):,} 点"]
+        for index, (name, title) in enumerate(zip(["raw", "down", "kept"], titles)):
+            label = gui.Label(title)
+            self.window.add_child(label)
+            self.labels.append(label)
+            widget = gui.SceneWidget()
+            widget.scene = rendering.Open3DScene(self.window.renderer)
+            widget.scene.set_background([0.96, 0.97, 0.98, 1])
+            widget.scene.add_geometry(name, clouds[name], self.material,
+                                      add_downsampled_copy_for_fast_rendering=False)
+            widget.set_view_controls(gui.SceneWidget.Controls.ROTATE_CAMERA)
+            widget.set_on_mouse(self.mouse_callback(index))
+            widget.set_on_key(self.on_key)
+            self.window.add_child(widget)
+            self.scenes.append(widget)
+        for name in ["gray", "red"]:
+            self.scenes[2].scene.add_geometry(name, clouds[name],
+                self.red_material if name == "red" else self.material,
+                add_downsampled_copy_for_fast_rendering=False)
+            self.scenes[2].scene.show_geometry(name, False)
+        count = clouds["stats"]["removed"]
+        self.status = gui.Label(
+            f"SOR：邻居 {args.neighbors}，std={args.std:g}；剔除 {count:,} 点。"
+            "左键旋转，滚轮缩放；右键或 Ctrl+左键平移。R 重置，Esc 关闭。")
+        self.window.add_child(self.status)
+        self.window.set_on_layout(self.on_layout)
+        self.window.set_on_tick_event(self.on_tick)
+        self.window.set_on_key(lambda event: self.on_key(event) != gui.Widget.EventCallbackResult.IGNORED)
+
+    def mouse_callback(self, index):
+        def on_mouse(event):
+            self.active = index
+            return gui.Widget.EventCallbackResult.IGNORED
+        return on_mouse
+
+    def on_key(self, event):
+        if event.type == gui.KeyEvent.DOWN:
+            if event.key == gui.KeyName.R:
+                self.reset_camera()
+                return gui.Widget.EventCallbackResult.HANDLED
+            if event.key == gui.KeyName.ESCAPE:
+                self.window.close()
+                return gui.Widget.EventCallbackResult.HANDLED
+        return gui.Widget.EventCallbackResult.IGNORED
+
+    def on_layout(self, context):
+        rect = self.window.content_rect
+        em = self.window.theme.font_size
+        toolbar_h, label_h, footer_h = int(2.7 * em), int(3.0 * em), int(2.1 * em)
+        self.toolbar.frame = gui.Rect(rect.x, rect.y, rect.width, toolbar_h)
+        width = rect.width // 3
+        for i, (label, widget) in enumerate(zip(self.labels, self.scenes)):
+            x = rect.x + i * width
+            label.frame = gui.Rect(x + 8, rect.y + toolbar_h, width - 16, label_h)
+            widget.frame = gui.Rect(x + 4, rect.y + toolbar_h + label_h, width - 8,
+                                   max(20, rect.height - toolbar_h - label_h - footer_h))
+        self.status.frame = gui.Rect(rect.x + 8, rect.get_bottom() - footer_h, rect.width - 16, footer_h)
+        if not self.initialized:
+            self.reset_camera()
+            self.initialized = True
+
+    def camera_states(self):
+        return [np.concatenate([w.scene.camera.get_view_matrix().ravel(),
+                                w.scene.camera.get_projection_matrix().ravel()]).copy()
+                for w in self.scenes]
+
+    def copy_camera(self, source):
+        for i, widget in enumerate(self.scenes):
+            if i != source:
+                widget.scene.camera.copy_from(self.scenes[source].scene.camera)
+                widget.center_of_rotation = self.scenes[source].center_of_rotation
+                widget.force_redraw()
+        self.last_cameras = self.camera_states()
+
+    def on_tick(self):
+        if not self.initialized:
+            return False
+        current = self.camera_states()
+        changed = [i for i in range(3) if not np.allclose(current[i], self.last_cameras[i], atol=1e-6)]
+        if changed and self.sync.checked:
+            source = self.active if self.active in changed else changed[0]
+            self.copy_camera(source)
+            return True
+        self.last_cameras = current
+        return False
+
+    def on_sync(self, checked):
+        if checked and self.initialized:
+            self.copy_camera(self.active)
+
+    def reset_camera(self):
+        bounds = self.clouds["bounds"]
+        center = bounds.get_center().astype(np.float32)
+        extent = bounds.get_extent()
+        up = np.zeros(3, dtype=np.float32)
+        up_axis = int(np.argmax(extent))
+        up[up_axis] = 1
+        eye_direction = np.array([0, 0, -1], dtype=np.float32)
+        if up_axis == 2:
+            eye_direction = np.array([0, -1, 0], dtype=np.float32)
+        eye = center + eye_direction * float(np.max(extent) * 2)
+        for widget in self.scenes:
+            widget.setup_camera(55.0, bounds, center)
+            widget.look_at(center, eye, up)
+            widget.force_redraw()
+        self.last_cameras = self.camera_states()
+
+    def set_point_size(self, value):
+        self.material.point_size = value
+        self.red_material.point_size = max(4, value * 2)
+        for widget, name in zip(self.scenes, ["raw", "down", "kept"]):
+            widget.scene.modify_geometry_material(name, self.material)
+        self.scenes[2].scene.modify_geometry_material("gray", self.material)
+        self.scenes[2].scene.modify_geometry_material("red", self.red_material)
+        for widget in self.scenes:
+            widget.force_redraw()
+
+    def set_mode(self, text, index):
+        right = self.scenes[2].scene
+        right.show_geometry("kept", index == 0)
+        right.show_geometry("gray", index == 1)
+        right.show_geometry("red", index in [1, 2])
+        self.labels[2].text = [f"统计去噪后\n{len(self.clouds['kept'].points):,} 点",
+                              "去噪诊断\n灰：保留点；红：删除点",
+                              f"被删除的统计离群点\n{len(self.clouds['red'].points):,} 点"][index]
+        self.scenes[2].force_redraw()
+
+
+def legacy_view(clouds, args):
+    """Compatibility mode: one OpenGL scene with three translated clouds."""
+    viewer = o3d.visualization.VisualizerWithKeyCallback()
+    if not viewer.create_window(window_name="3D comparison | Left RAW | Middle VOXEL | Right DENOISED",
+                                 width=1600, height=900):
+        raise RuntimeError("OpenGL window could not be created")
+    extent = clouds["bounds"].get_extent()
+    step = float(max(extent[1] * 1.2, np.max(extent) * 0.85))
+    triple = [copy.deepcopy(clouds[name]).translate([0, offset * step, 0])
+              for name, offset in zip(["raw", "down", "kept"], [-1, 0, 1])]
+    try:
+        for cloud in triple:
+            viewer.add_geometry(cloud)
+        opt = viewer.get_render_option()
+        opt.background_color = np.array([0.96, 0.97, 0.98])
+        opt.point_size = args.point_size
+        opt.light_on = False
+        control = viewer.get_view_control()
+        control.set_front([0, 0, -1])
+        control.set_up([1, 0, 0])
+        control.set_lookat([0, 0, 0])
+        control.set_zoom(0.75)
+
+        def show(geometries):
+            def callback(vis):
+                vis.clear_geometries()
+                for geometry in geometries:
+                    vis.add_geometry(geometry, reset_bounding_box=False)
+                return False
+            return callback
+        for key, geometries in [("1", triple), ("2", [clouds["raw"]]),
+                                ("3", [clouds["down"]]), ("4", [clouds["kept"]]),
+                                ("5", [clouds["gray"], clouds["red"]])]:
+            viewer.register_key_callback(ord(key), show(geometries))
+        print("Legacy keys: 1=three clouds, 2=raw, 3=voxel, 4=denoised, 5=red diagnostics.", flush=True)
+        viewer.run()
+    finally:
+        viewer.destroy_window()
+
+
+def smoke_test(app, window):
+    """Render the real data and exercise synchronized cameras/material/mode changes."""
+    for _ in range(100):
+        app.run_one_tick()
+        time.sleep(0.02)
+        if window.initialized:
+            break
+    assert window.initialized
+    window.active = 1
+    center = window.clouds["bounds"].get_center().astype(np.float32)
+    window.scenes[1].look_at(center, center + np.array([0.3, -0.2, -3], dtype=np.float32),
+                             np.array([1, 0, 0], dtype=np.float32))
+    assert window.on_tick()
+    states = window.camera_states()
+    assert all(np.allclose(states[0], state, atol=1e-6) for state in states[1:])
+    window.set_mode("diagnostics", 1)
+    window.set_point_size(2.5)
+    window.set_mode("only removed", 2)
+    window.set_mode("RGB", 0)
+    window.reset_camera()
+    for _ in range(6):
+        app.run_one_tick()
+        time.sleep(0.02)
+    output = ROOT / "_work" / "denoise_3d_validation"
+    output.mkdir(parents=True, exist_ok=True)
+    for i, widget in enumerate(window.scenes):
+        image = app.render_to_image(widget.scene, 560, 800)
+        assert np.asarray(image).std() > 0
+        assert o3d.io.write_image(str(output / f"panel_{i + 1}.png"), image)
+    window.set_mode("diagnostics", 1)
+    image = app.render_to_image(window.scenes[2].scene, 560, 800)
+    assert o3d.io.write_image(str(output / "removed_overlay.png"), image)
+    window.window.close()
+    for _ in range(3):
+        if not app.run_one_tick():
+            break
+    print("PASS: real RGB rendering, all three cameras synchronized, point size and removed-point modes.", flush=True)
+    print("Validation images:", output, flush=True)
+
+
+def main():
+    args = parse_args()
+    clouds = prepare_clouds(args)
+    if args.legacy:
+        legacy_view(clouds, args)
+        return
+    app = gui.Application.instance
+    app.initialize()
+    font_path = Path(r"C:\Windows\Fonts\msyh.ttc")
+    if font_path.is_file():
+        font = gui.FontDescription(str(font_path))
+        font.add_typeface_for_language(str(font_path), "zh")
+        app.set_font(gui.Application.DEFAULT_FONT_ID, font)
+    window = ComparisonWindow(clouds, args)
+    if args.smoke_test:
+        try:
+            smoke_test(app, window)
+        finally:
+            window.window.close()
+            app.quit()
+    else:
+        print("3D comparison ready: drag any panel; cameras are synchronized. Right dropdown shows removed points.", flush=True)
+        app.run()
+
+
+if __name__ == "__main__":
+    main()

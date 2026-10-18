@@ -1,0 +1,18 @@
+{
+  "input": "D:\\SSYJS-study\\sanweichongjian\\pythonProject\\PointToModel\\export_00000.ply",
+  "open3d": "0.19.0",
+  "input_unit": "mm",
+  "display_unit": "mm",
+  "voxel_mm": 3.0,
+  "sor_neighbors": 20,
+  "sor_std_ratio": 2.5,
+  "original_points": 493522,
+  "finite_unique_points": 493522,
+  "voxel_points": 304985,
+  "retained_points": 303619,
+  "sor_removed_points": 1366,
+  "sor_removed_fraction_of_voxel_points": 0.004478908798793383,
+  "preprocessing_seconds": 0.921,
+  "display": "All points, fixed orthographic view along Z; X vertical, Y horizontal.",
+  "note": "Voxel reduction is resampling, not a count of removed noise. SOR flags are not noise ground truth. Dense background fragments may remain."
+}
