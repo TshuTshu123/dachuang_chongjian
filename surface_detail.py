@@ -8,6 +8,31 @@ import numpy as np
 from scipy.spatial import cKDTree
 
 
+def select_main_point_component(cloud, radius, min_points=6, proxy_voxel=0.004):
+    """Cluster a coarse proxy before normals/Poisson; preserve source resolution.
+
+    Imported lazily to keep local-plane math usable without Open3D. Mapping back
+    through nearest proxy labels preserves source point colors and attributes.
+    This assumes a single connected subject; use the CLI's 'all' mode otherwise.
+    """
+    proxy = cloud.voxel_down_sample(proxy_voxel)
+    labels = np.asarray(proxy.cluster_dbscan(eps=radius, min_points=min_points))
+    good = labels >= 0
+    if not good.any():
+        raise RuntimeError("No supported point cluster; increase point-cluster-radius-mm or use --point-components all")
+    counts = np.bincount(labels[good])
+    main_label = int(np.argmax(counts))
+    _, nearest = cKDTree(np.asarray(proxy.points)).query(np.asarray(cloud.points), workers=1)
+    keep = labels[nearest] == main_label
+    kept = cloud.select_by_index(np.flatnonzero(keep))
+    rejected = cloud.select_by_index(np.flatnonzero(~keep))
+    return kept, rejected, {"method": "largest DBSCAN cluster on 4mm proxy",
+                            "proxy_voxel_mm": proxy_voxel * 1000,
+                            "radius_mm": radius * 1000, "min_points": min_points,
+                            "proxy_clusters": len(counts), "input_points": len(cloud.points),
+                            "kept_points": len(kept.points), "removed_points": len(rejected.points)}
+
+
 def fit_local_planes(points, neighbors, radius, workers, batch_size=8192):
     """Return robust PCA normals, signed plane offsets, support and flatness.
 
@@ -99,3 +124,4 @@ def denoise_local_planes(points, neighbors, radius, workers, iterations,
                      "movement_p95_mm": float(np.quantile(movement, 0.95)),
                      "movement_max_mm": float(np.max(movement)),
                      "per_iteration": per_iteration}
+

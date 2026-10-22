@@ -1,7 +1,7 @@
 """Colored human point cloud -> colored PLY mesh.
 
-Tested environment: Python 3.9.25, Open3D 0.19.0, NumPy 1.23.5,
-SciPy 1.13.1. Run from the VS Code terminal; no arguments are required.
+Run from the VS Code terminal in your existing Python environment.
+See requirements.txt for dependencies and docs/使用说明.md for commands.
 Input/output coordinates are millimeters by default. Geometry processing uses
 meters internally. Open3D's legacy Screened Poisson implementation runs on CPU.
 """
@@ -19,11 +19,11 @@ import numpy as np
 import open3d as o3d
 from scipy.spatial import cKDTree
 
-from surface_detail import denoise_local_planes, fit_local_planes
+from surface_detail import denoise_local_planes, fit_local_planes, select_main_point_component
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-DEFAULT_INPUT = SCRIPT_DIR / "export_00000.ply"
+DEFAULT_INPUT = SCRIPT_DIR / "data" / "export_00000.ply"
 PRESETS = {
     "fast": {"voxel": 0.004, "depth": 8, "faces": 60000},
     "balanced": {"voxel": 0.003, "depth": 9, "faces": 100000},
@@ -31,6 +31,11 @@ PRESETS = {
     "detail": {"voxel": 0.001, "depth": 10, "faces": 0,
                "normal_radius": 0.008, "normal_max_nn": 32,
                "normal_method": "robust"},
+    "scan": {"voxel": 0.002, "depth": 9, "faces": 0,
+             "normal_radius": 0.012, "normal_max_nn": 64,
+             "normal_method": "robust", "point_denoise_iterations": 2,
+             "point_denoise_max_move_mm": 1.0, "point_components": "largest",
+             "max_extrapolation_mm": 0.0, "smooth_iterations": 2},
 }
 UNIT_TO_METERS = {"m": 1.0, "mm": 0.001}
 
@@ -178,6 +183,9 @@ def visualize(mesh, pcd):
         options.background_color = np.array([0.10, 0.10, 0.12])
         options.point_size = 2.0
         options.mesh_show_back_face = True
+        # Open3D 0.19 Python enum names are Default/Color; numeric 1 is
+        # SmoothShade in the C++ renderer (0 is FlatShade).
+        options.mesh_shade_option = o3d.visualization.MeshShadeOption(1)
         original_mesh_colors = np.asarray(mesh.vertex_colors).copy()
         gray_mode = False
 
@@ -207,12 +215,20 @@ def visualize(mesh, pcd):
             viewer.update_renderer()
             return False
 
+        def toggle_shading(viewer):
+            opt = viewer.get_render_option()
+            smooth = opt.mesh_shade_option == o3d.visualization.MeshShadeOption(1)
+            opt.mesh_shade_option = o3d.visualization.MeshShadeOption(0 if smooth else 1)
+            viewer.update_renderer()
+            return False
+
         vis.register_key_callback(ord("1"), show([mesh]))
         vis.register_key_callback(ord("2"), show([pcd]))
         vis.register_key_callback(ord("3"), show([mesh, pcd]))
         vis.register_key_callback(ord("W"), toggle_wire)
         vis.register_key_callback(ord("C"), toggle_geometry_color)
-        print("Viewer: 1=mesh, 2=original points, 3=overlay, W=wireframe, C=gray/RGB.", flush=True)
+        vis.register_key_callback(ord("N"), toggle_shading)
+        print("Viewer: 1=mesh, 2=original points, 3=overlay, W=wireframe, C=gray/RGB, N=flat/smooth shading.", flush=True)
         print("Mouse: left=rotate, wheel=zoom, Ctrl+left=pan; Q/Esc=close.", flush=True)
         vis.run()
     finally:
@@ -238,10 +254,15 @@ def parse_args():
     parser.add_argument("--normal-radius", type=float, help="Meters; balanced 12 mm, detail 8 mm.")
     parser.add_argument("--normal-max-nn", type=int)
     parser.add_argument("--normal-method", choices=["legacy", "robust"])
-    parser.add_argument("--point-denoise-iterations", type=int, default=0,
+    parser.add_argument("--point-denoise-iterations", type=int,
                         help="0..3 robust local-plane filtering iterations; default off.")
-    parser.add_argument("--point-denoise-max-move-mm", type=float, default=0.5,
+    parser.add_argument("--point-denoise-max-move-mm", type=float,
                         help="Total point displacement cap across all iterations, default 0.5 mm.")
+    parser.add_argument("--point-components", choices=["all", "largest"],
+                        help="Pre-Poisson point clustering; scan=largest, other presets=all.")
+    parser.add_argument("--point-cluster-radius-mm", type=float, default=12.0)
+    parser.add_argument("--max-extrapolation-mm", type=float,
+                        help="Drop Poisson vertices farther than this from retained observations; 0=off. Can open holes.")
     parser.add_argument("--crop-bounds", type=float, nargs=6,
                         metavar=("XMIN", "YMIN", "ZMIN", "XMAX", "YMAX", "ZMAX"),
                         help="Optional ROI box in input coordinate units; exports a separate local mesh.")
@@ -255,7 +276,7 @@ def parse_args():
     selection.add_argument("--keep-all-components", dest="keep_largest", action="store_false",
                            help="Keep disconnected anatomy and extraneous fragments for inspection.")
     parser.set_defaults(keep_largest=True)
-    parser.add_argument("--smooth-iterations", type=int, default=0)
+    parser.add_argument("--smooth-iterations", type=int)
     parser.add_argument("--color-k", type=int, default=1, help="1=preserve nearest RGB, 3-4=interpolate.")
     parser.add_argument("--qa-samples", type=int, default=10000, help="0 skips distance QA.")
     parser.add_argument("--skip-self-intersections", action="store_true",
@@ -269,7 +290,9 @@ def parse_args():
         if getattr(args, name) is None:
             setattr(args, name, value)
     for name, value in {"normal_radius": 0.012, "normal_max_nn": 40,
-                        "normal_method": "legacy"}.items():
+                        "normal_method": "legacy", "point_denoise_iterations": 0,
+                        "point_denoise_max_move_mm": 0.5, "point_components": "all",
+                        "max_extrapolation_mm": 0.0, "smooth_iterations": 0}.items():
         if getattr(args, name) is None:
             setattr(args, name, value)
     for name in ["voxel", "outlier_std", "normal_radius", "poisson_scale"]:
@@ -285,6 +308,10 @@ def parse_args():
         parser.error("point-denoise-iterations must be 0..3")
     if not np.isfinite(args.point_denoise_max_move_mm) or args.point_denoise_max_move_mm <= 0:
         parser.error("point-denoise-max-move-mm must be finite and positive")
+    if not np.isfinite(args.point_cluster_radius_mm) or args.point_cluster_radius_mm < 4:
+        parser.error("point-cluster-radius-mm must be finite and >= 4 for the 4mm proxy")
+    if not np.isfinite(args.max_extrapolation_mm) or args.max_extrapolation_mm < 0:
+        parser.error("max-extrapolation-mm must be finite and >= 0")
     if (args.normal_method == "robust" or args.point_denoise_iterations) and args.normal_max_nn < 6:
         parser.error("robust local-plane fitting requires normal-max-nn >= 6")
     if args.crop_bounds is not None:
@@ -341,6 +368,14 @@ def main():
             raise RuntimeError("Too few voxel points; check input unit and voxel size.")
         pcd, _ = pcd.remove_statistical_outlier(
             nb_neighbors=args.outlier_neighbors, std_ratio=args.outlier_std)
+        sor_count = len(pcd.points)
+        point_component_report = {"method": "disabled", "removed_points": 0}
+        component_rejected = None
+        if args.point_components == "largest":
+            pcd, component_rejected, point_component_report = select_main_point_component(
+                pcd, args.point_cluster_radius_mm * .001)
+            print(f"  Point clustering: {sor_count} -> {len(pcd.points)}; "
+                  f"removed {point_component_report['removed_points']} points before normals/Poisson", flush=True)
         if len(pcd.points) <= max(args.normal_max_nn, args.orient_k):
             raise RuntimeError("Too few filtered points.")
         origin = (pcd.get_min_bound() + pcd.get_max_bound()) / 2
@@ -399,6 +434,16 @@ def main():
         if args.trim_quantile > 0:
             density = np.asarray(density)
             mesh.remove_vertices_by_mask(density < np.quantile(density, args.trim_quantile))
+        extrapolation_report = {"enabled": False, "removed_vertices": 0}
+        if args.max_extrapolation_mm > 0:
+            distance, _ = cKDTree(np.asarray(observations.points)).query(
+                np.asarray(mesh.vertices), workers=args.threads)
+            unsupported = distance > args.max_extrapolation_mm * .001
+            extrapolation_report = {"enabled": True, "limit_mm": args.max_extrapolation_mm,
+                                    "vertices_before": len(mesh.vertices),
+                                    "removed_vertices": int(unsupported.sum())}
+            mesh.remove_vertices_by_mask(unsupported)
+            print(f"  Removed {unsupported.sum()} unsupported Poisson vertices", flush=True)
         mesh = clean_mesh(mesh)
         del density
     with stage("postprocess_and_decimate", timings):
@@ -413,6 +458,8 @@ def main():
             print(f"  Surface components: {components_before}; removed {removed_faces} non-main faces")
         if args.smooth_iterations:
             mesh = clean_mesh(mesh.filter_smooth_taubin(number_of_iterations=args.smooth_iterations))
+            if mesh.has_vertex_colors():
+                mesh.vertex_colors = o3d.utility.Vector3dVector(np.clip(np.asarray(mesh.vertex_colors), 0, 1))
         highres_closed_edges = bool(mesh.is_edge_manifold(allow_boundary_edges=False))
         highres_manifold_vertices = bool(mesh.is_vertex_manifold())
         highres_mesh = copy.deepcopy(mesh) if args.save_intermediates else None
@@ -466,6 +513,11 @@ def main():
             processed.scale(1 / UNIT_TO_METERS[output_unit], center=np.zeros(3))
             if not o3d.io.write_point_cloud(str(args.out / f"{basename}_processed.ply"), processed):
                 raise OSError("Failed to write processed point cloud.")
+            if component_rejected is not None and component_rejected.has_points():
+                rejected = copy.deepcopy(component_rejected)
+                rejected.scale(1 / UNIT_TO_METERS[output_unit], center=np.zeros(3))
+                if not o3d.io.write_point_cloud(str(args.out / f"{basename}_rejected_components.ply"), rejected):
+                    raise OSError("Failed to write rejected point components.")
     report.update({
         "open3d_version": o3d.__version__,
         "settings": {key: str(value) if isinstance(value, Path) else value
@@ -473,6 +525,8 @@ def main():
         "input_points": input_count, "finite_unique_points": finite_unique_count,
         "roi_source_points": len(source.points),
         "point_denoise": point_denoise_report, "normal_estimation": normal_report,
+        "point_components": point_component_report, "extrapolation_trim": extrapolation_report,
+        "sor_retained_points": sor_count,
         "voxel_points": voxel_count, "filtered_points": len(pcd.points),
         "input_unit": args.input_unit, "output_coordinate_unit": output_unit,
         "processing_coordinate_unit": "m", "mesh_path": str(mesh_path),
