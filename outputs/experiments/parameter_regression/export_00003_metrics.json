@@ -1,0 +1,34 @@
+{
+  "history": {
+    "path": "D:\\dachuang\\chongjian(1)\\chongjian\\outputs\\history\\scan\\export_00003_mesh.ply",
+    "vertices": 202739,
+    "faces": 405472,
+    "head_vertex_raw_p95_mm": 5.723370206181676,
+    "body_vertex_raw_p95_mm": 3.509268047268173,
+    "body_vertices_over_10mm_fraction": 0.0077212408605087084
+  },
+  "old auto": {
+    "path": "D:\\dachuang\\chongjian(1)\\chongjian\\outputs\\models\\export_00003\\20261029_205948_720729\\export_00003_mesh.ply",
+    "vertices": 200562,
+    "faces": 400238,
+    "head_vertex_raw_p95_mm": 5.736238597053729,
+    "body_vertex_raw_p95_mm": 3.482188314753872,
+    "body_vertices_over_10mm_fraction": 0.006946258224195615
+  },
+  "scan baseline": {
+    "path": "D:\\dachuang\\chongjian(1)\\chongjian\\outputs\\experiments\\parameter_regression\\baseline_3\\export_00003_mesh.ply",
+    "vertices": 202739,
+    "faces": 405472,
+    "head_vertex_raw_p95_mm": 5.723370202811952,
+    "body_vertex_raw_p95_mm": 3.509268013150974,
+    "body_vertices_over_10mm_fraction": 0.0077212408605087084
+  },
+  "candidate": {
+    "path": "D:\\dachuang\\chongjian(1)\\chongjian\\outputs\\experiments\\parameter_regression\\candidate_3\\export_00003_mesh.ply",
+    "vertices": 201028,
+    "faces": 402046,
+    "head_vertex_raw_p95_mm": 5.712641635531766,
+    "body_vertex_raw_p95_mm": 3.482502768712504,
+    "body_vertices_over_10mm_fraction": 0.005072359398580991
+  }
+}

@@ -1,0 +1,80 @@
+{
+  "source": "D:\\dachuang\\chongjian(1)\\chongjian\\outputs\\models\\export_00001\\20261029_214717_112915\\export_00001_mesh.ply",
+  "source_unchanged": true,
+  "feet": {
+    "floor_x_mm": -377.9881286621094,
+    "removed_original_vertices": 1080,
+    "new_cut_vertices": 585,
+    "closed_shoe_contours": 1,
+    "cap_triangles": 583,
+    "note": "Planar inferred caps, not measured soles or print certification. A shared contour retains existing foot connectivity; feet are not separated."
+  },
+  "foot_topology": {
+    "vertices": 194720,
+    "triangles": 389468,
+    "connected_components": 1,
+    "largest_components": [
+      {
+        "triangles": 389468,
+        "area_m2": 1.5871103838382707
+      }
+    ],
+    "boundary_edges": 0,
+    "edges_with_more_than_two_faces": 0,
+    "closed_edge_manifold": true,
+    "vertex_manifold": true,
+    "orientation_succeeded": true,
+    "self_intersecting": null,
+    "global_winding": {
+      "flipped": false,
+      "centered_signed_flux_before_m3": 0.06127566319369821,
+      "note": "Diagnostic flux only. Open-surface global winding is preserved; this is not true volume."
+    },
+    "self_intersections_checked": false,
+    "watertight": null,
+    "volume_m3_single_closed_component": 0.061275663193699204,
+    "geometry_gate_passed": null,
+    "topology_check_timings_seconds": {
+      "topology: face_orientation_and_components": 1.902,
+      "topology: edge_counts": 0.903,
+      "topology: vertex_manifold": 0.613,
+      "topology: vertex_normals": 0.008
+    }
+  },
+  "hands": {
+    "accepted": true,
+    "roi_vertices": 7096,
+    "boxes_mm": [
+      [
+        [
+          220,
+          -250,
+          970
+        ],
+        [
+          380,
+          -155,
+          1130
+        ]
+      ],
+      [
+        [
+          240,
+          150,
+          960
+        ],
+        [
+          400,
+          250,
+          1110
+        ]
+      ]
+    ],
+    "hand_distance_p95_before_mm": 6.650707087009188,
+    "hand_distance_p95_candidate_mm": 6.650707087009188,
+    "movement_max_mm": 2.9781341579174225,
+    "moved_vertices": 276,
+    "non_hand_vertices_exactly_unchanged": true,
+    "note": "Conservative local projection; cannot recover unobserved fingers or remove all webbing."
+  }
+}

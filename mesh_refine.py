@@ -1,4 +1,12 @@
-"""Bounded bilateral face-normal filtering and raw-observation support maps.
+"""可选独立网格后处理：双边法线去噪、顶点限幅及观测支撑着色。
+run.py 已自动执行轻度后处理，日常不用另外运行本文件。
+  python mesh_refine.py 模型.ply --source data/export_00003.ply --out outputs/manual/refine/本次名称
+  --source：原始点云；--out：单独输出目录，不与输入目录相同
+  --max-move-mm 1：累计移动上限；--normal-iterations 5：法线过滤次数
+  --vertex-iterations 12：顶点迭代次数；--active-min-x-mm 数值：限定 X 轴处理范围
+输入/输出单位为 mm，支撑颜色不是精度概率；更多参数见 --help。
+
+Bounded bilateral face-normal filtering and raw-observation support maps.
 
 Traditional local filtering; not an exact reproduction of a specific paper.
 Inputs/exports are millimeters. Algorithms run in meters. Face connectivity is

@@ -1,0 +1,190 @@
+{
+  "vertices": 200562,
+  "triangles": 400238,
+  "connected_components": 1,
+  "largest_components": [
+    {
+      "triangles": 400238,
+      "area_m2": 1.7600292595802725
+    }
+  ],
+  "boundary_edges": 936,
+  "edges_with_more_than_two_faces": 0,
+  "closed_edge_manifold": false,
+  "vertex_manifold": false,
+  "orientation_succeeded": true,
+  "self_intersecting": null,
+  "self_intersections_checked": false,
+  "watertight": null,
+  "volume_m3_single_closed_component": null,
+  "geometry_gate_passed": null,
+  "topology_check_timings_seconds": {
+    "topology: face_orientation_and_components": 1.884,
+    "topology: edge_counts": 0.92,
+    "topology: vertex_manifold": 0.651,
+    "topology: vertex_normals": 0.009
+  },
+  "color": {
+    "preserved": true,
+    "source": "original finite unique input points",
+    "neighbors": 1,
+    "transfer": "nearest RGB",
+    "invalid_color_points_ignored": 0,
+    "vertex_to_original_point": {
+      "median_mm": 1.7569040060140413,
+      "p95_mm": 3.7750588415178115,
+      "max_mm": 33.40700410938989
+    },
+    "vertices_more_than_10mm_from_observation": 1458
+  },
+  "processed_observations_to_mesh": {
+    "median_mm": 1.6228957176208496,
+    "p95_mm": 6.2799458503723145,
+    "max_mm": 26.660053253173828
+  },
+  "sampled_mesh_to_processed_observations": {
+    "median_mm": 1.822260083394481,
+    "p95_mm": 4.713305468466474,
+    "max_mm": 33.51956780829822
+  },
+  "open3d_version": "0.19.0",
+  "settings": {
+    "input": "D:\\dachuang\\chongjian(1)\\chongjian\\data\\export_00003.ply",
+    "out": "D:\\dachuang\\chongjian(1)\\chongjian\\outputs\\models\\export_00003\\20261029_205948_720729\\intermediate",
+    "input_unit": "mm",
+    "output_unit": "mm",
+    "preset": "scan",
+    "voxel": 0.00184,
+    "depth": 9,
+    "faces": 0,
+    "threads": 8,
+    "outlier_neighbors": 20,
+    "outlier_std": 2.5,
+    "normal_radius": 0.011211,
+    "normal_max_nn": 64,
+    "normal_method": "robust",
+    "point_denoise_iterations": 2,
+    "point_denoise_max_move_mm": 1.0,
+    "point_components": "largest",
+    "point_cluster_radius_mm": 12.0,
+    "max_extrapolation_mm": 0.0,
+    "crop_bounds": null,
+    "orient_k": 30,
+    "poisson_scale": 1.1,
+    "trim_quantile": 0.0,
+    "keep_largest": true,
+    "smooth_iterations": 0,
+    "color_k": 1,
+    "qa_samples": 5000,
+    "skip_self_intersections": true,
+    "save_intermediates": false,
+    "sole_guard": "auto",
+    "up_sign": 1,
+    "sole_margin_mm": 6.0,
+    "preview_normals": false,
+    "no_vis": true,
+    "overwrite": false
+  },
+  "input_points": 316190,
+  "finite_unique_points": 316190,
+  "roi_source_points": 316190,
+  "point_denoise": {
+    "method": "robust local-plane damped projection",
+    "iterations": 2,
+    "total_displacement_limit_mm": 1.0,
+    "moved_points": 54354,
+    "movement_median_mm": 0.0,
+    "movement_p95_mm": 0.8864994980773975,
+    "movement_max_mm": 0.9999999985277237,
+    "per_iteration": [
+      {
+        "supported_points": 296701,
+        "eligible_flat_points": 43921
+      },
+      {
+        "supported_points": 296697,
+        "eligible_flat_points": 53627
+      }
+    ]
+  },
+  "normal_estimation": {
+    "method": "robust",
+    "robust_fitted_points": 296697,
+    "legacy_fallback_points": 408,
+    "median_neighborhood_points": 64.0
+  },
+  "sole_guard": {
+    "enabled": true,
+    "removed_vertices": 1914,
+    "note": "Observation support constraint, not recovered true sole thickness; may open holes.",
+    "axis": "x",
+    "up_sign": 1,
+    "support_limit_mm": 6.0,
+    "foot_band_mm": 120.0,
+    "observed_min_height_m": -0.8182412109374999,
+    "below_observed_min_before_mm": 81.79935598373422,
+    "below_observed_min_after_mm": 4.473475456237885
+  },
+  "point_components": {
+    "method": "largest DBSCAN cluster on 4mm proxy",
+    "proxy_voxel_mm": 4.0,
+    "radius_mm": 12.0,
+    "min_points": 6,
+    "proxy_clusters": 6,
+    "input_points": 297455,
+    "kept_points": 297105,
+    "removed_points": 350
+  },
+  "extrapolation_trim": {
+    "enabled": false,
+    "removed_vertices": 0
+  },
+  "sor_retained_points": 297455,
+  "voxel_points": 298523,
+  "filtered_points": 297105,
+  "input_unit": "mm",
+  "output_coordinate_unit": "mm",
+  "processing_coordinate_unit": "m",
+  "mesh_path": "D:\\dachuang\\chongjian(1)\\chongjian\\outputs\\models\\export_00003\\20261029_205948_720729\\intermediate\\export_00003_mesh.ply",
+  "meter_coordinate_origin": [
+    0.4426175537109375,
+    -0.04824722290039063,
+    1.189672607421875
+  ],
+  "extent_m": [
+    1.6359853515624998,
+    0.8110537614412998,
+    0.3966113281250001
+  ],
+  "median_sampled_point_spacing_mm": 2.3027892358555713,
+  "finest_poisson_cube_cell_mm": 3.5148122787475584,
+  "poisson_resolution_note": "Nominal finest cube cell size, not guaranteed surface accuracy; octree is adaptive.",
+  "triangles_before_decimation": 400238,
+  "target_triangles": 0,
+  "components_before_selection": 17,
+  "removed_non_main_component_faces": 824,
+  "highres_closed_edge_manifold": false,
+  "highres_vertex_manifold": false,
+  "timings_seconds": {
+    "read_and_clean": 0.171,
+    "downsample_and_filter": 1.652,
+    "robust_point_denoise": 14.586,
+    "estimate_normals": 7.498,
+    "orient_normals": 13.166,
+    "poisson_cpu": 3.133,
+    "postprocess_and_decimate": 1.843,
+    "topology_checks": 3.468,
+    "original_rgb_transfer": 0.172,
+    "distance_qa": 0.344,
+    "write_colored_ply": 0.166
+  },
+  "total_before_visualization_seconds": 46.215,
+  "qa_note": "Distances use SOR-retained observations BEFORE optional position filtering, not ground truth. When keep-largest removes fragments, point-to-mesh maxima can include those removed fragments. Inferred surfaces have no true observed color. PLY does not store units.",
+  "manual_checks": [
+    "Inferred holes and anatomy",
+    "Nearby finger/limb bridges",
+    "Disconnected components",
+    "Color on inferred surfaces",
+    "Print scale, minimum thickness, orientation and supports"
+  ]
+}

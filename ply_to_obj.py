@@ -1,4 +1,10 @@
-"""Convert PLY geometry to OBJ without reconstruction or coordinate scaling."""
+"""独立格式转换：PLY 转 OBJ，不重建、不改变坐标单位。
+  python ply_to_obj.py 模型.ply
+  --out outputs/conversions/自定名称.obj：自定义输出；默认 outputs/conversions/输入名/
+  --vertex-colors：附加顶点 RGB（部分软件不支持）；--overwrite：允许覆盖
+  --points-only：仅导出点云，无三角面，不会凭空生成表面
+run.py 已同时生成 PLY/OBJ，日常无需重复转换。完整参数见 --help。
+"""
 
 import argparse
 from pathlib import Path
@@ -10,7 +16,7 @@ import open3d as o3d
 def convert_ply_to_obj(source, output=None, *, points_only=False,
                        vertex_colors=False, overwrite=False):
     source = Path(source)
-    output = Path(output) if output is not None else source.with_suffix('.obj')
+    output = Path(output) if output is not None else Path(__file__).resolve().parent / 'outputs' / 'conversions' / source.stem / (source.stem + '.obj')
     if source.suffix.lower() != '.ply' or output.suffix.lower() != '.obj':
         raise ValueError('Input must be .ply and output must be .obj.')
     if not source.is_file():
@@ -69,7 +75,7 @@ def convert_ply_to_obj(source, output=None, *, points_only=False,
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('input', type=Path, help='Input PLY mesh (ASCII or binary).')
-    parser.add_argument('--out', type=Path, help='Default: input path with .obj extension.')
+    parser.add_argument('--out', type=Path, help='Default: outputs/conversions/input-name/input-name.obj.')
     parser.add_argument('--points-only', action='store_true', help='Export points only; never creates a surface.')
     parser.add_argument('--vertex-colors', action='store_true', help='Optional RGB vertex extension; some viewers ignore it.')
     parser.add_argument('--overwrite', action='store_true', help='Replace an existing output OBJ.')

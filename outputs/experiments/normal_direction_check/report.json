@@ -1,0 +1,11 @@
+{
+  "source": "D:\\dachuang\\chongjian(1)\\chongjian\\outputs\\models\\export_00001\\20261029_212248_041159\\export_00001_mesh.ply",
+  "output": "D:\\dachuang\\chongjian(1)\\chongjian\\outputs\\experiments\\normal_direction_check\\export_00001_normal_only.ply",
+  "changes": "triangle winding and normal signs only",
+  "vertex_positions_bitwise_identical": true,
+  "vertex_colors_bitwise_identical": true,
+  "faces": 390428,
+  "head_nearest_history_p95_mm": 2.7548640166123475e-05,
+  "head_normal_dot_history_median": 0.9999999999999998,
+  "note": "Matches history global orientation for display comparison, not a geometric detail enhancement."
+}

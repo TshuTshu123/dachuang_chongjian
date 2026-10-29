@@ -1,4 +1,14 @@
-"""Colored human point cloud -> colored PLY mesh.
+"""分步重建入口：点云清理、去噪、法线估计、Poisson 重建及鞋底外扩清理。
+日常推荐：python run.py 3（自动参数）。本文件适合手动调整参数：
+  python reconstruct_human.py data/export_00003.ply --preset scan --no-vis --skip-self-intersections
+  --preset scan：稳健去噪；--depth 9：重建精细度；--voxel 0.002：2 mm 采样格。
+  --sole-guard auto|x|y|z|off：可选脚部删面约束，默认 off；auto 按最长轴且正向朝上。
+  --up-sign -1：所选轴负向朝上；--sole-margin-mm 6：脚部距观测点容许距离。
+  --out 路径：自定义目录；默认 outputs/manual/输入名/时间/。
+  --no-vis：不弹窗；--skip-self-intersections：跳过耗时自交检查，不等于可打印。
+  --save-intermediates：保存中间点云和网格；完整参数见 --help。
+
+Colored human point cloud -> colored PLY mesh.
 
 Run from the VS Code terminal in your existing Python environment.
 See requirements.txt for dependencies and docs/使用说明.md for commands.
@@ -19,7 +29,7 @@ import numpy as np
 import open3d as o3d
 from scipy.spatial import cKDTree
 
-from surface_detail import denoise_local_planes, fit_local_planes, select_main_point_component
+from surface_detail import denoise_local_planes, fit_local_planes, select_main_point_component, trim_unsupported_sole
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -103,6 +113,15 @@ def geometry_report(mesh, check_intersections=True):
             mesh.triangles = o3d.utility.Vector3iVector(triangles[:, [0, 2, 1]].copy())
             signed_volume = -signed_volume
     extent = float(np.max(mesh.get_max_bound() - mesh.get_min_bound()))
+    # For OPEN surfaces the signed flux is diagnostic only. Do not infer their
+    # global front/back direction from a non-volume, or change history shading.
+    global_flip = False
+    orientation_flux = None
+    if oriented and len(counts) == 1:
+        points = np.asarray(mesh.vertices) - np.asarray(mesh.get_center())
+        faces = np.asarray(mesh.triangles)
+        orientation_flux = float(np.einsum('ij,ij->i', points[faces[:, 0]],
+                                 np.cross(points[faces[:, 1]], points[faces[:, 2]])).sum() / 6)
     gate = (bool(watertight and oriented and len(counts) == 1
                  and signed_volume is not None and signed_volume > extent ** 3 * 1e-12)
             if check_intersections else None)
@@ -118,6 +137,8 @@ def geometry_report(mesh, check_intersections=True):
         "edges_with_more_than_two_faces": int(np.count_nonzero(edge_counts > 2)),
         "closed_edge_manifold": closed_edges, "vertex_manifold": manifold_vertices,
         "orientation_succeeded": oriented, "self_intersecting": intersecting,
+        "global_winding": {"flipped": global_flip, "centered_signed_flux_before_m3": orientation_flux,
+                           "note": "Diagnostic flux only. Open-surface global winding is preserved; this is not true volume."},
         "self_intersections_checked": check_intersections, "watertight": watertight,
         "volume_m3_single_closed_component": signed_volume,
         "geometry_gate_passed": gate,
@@ -240,7 +261,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("input", nargs="?", type=Path, default=DEFAULT_INPUT)
     parser.add_argument("--out", type=Path,
-                        help="Output directory; default: script folder / outputs / preset.")
+                        help="Output directory; default: outputs/manual/input-name/timestamp.")
     parser.add_argument("--input-unit", choices=UNIT_TO_METERS, default="mm")
     parser.add_argument("--output-unit", choices=["input", "m", "mm"], default="input")
     parser.add_argument("--preset", choices=PRESETS, default="balanced")
@@ -282,10 +303,15 @@ def parse_args():
     parser.add_argument("--skip-self-intersections", action="store_true",
                         help="Faster inspection only; report will NOT assert watertight/print gate.")
     parser.add_argument("--save-intermediates", action="store_true")
+    parser.add_argument('--sole-guard', choices=['auto', 'x', 'y', 'z', 'off'], default='off')
+    parser.add_argument('--up-sign', type=int, choices=[-1, 1], default=1)
+    parser.add_argument('--sole-margin-mm', type=float, default=6.)
     parser.add_argument("--preview-normals", action="store_true")
     parser.add_argument("--no-vis", action="store_true", help="Batch run without interactive viewer.")
     parser.add_argument("--overwrite", action="store_true", help="Replace previous generated output.")
     args = parser.parse_args()
+    if not np.isfinite(args.sole_margin_mm) or args.sole_margin_mm <= 0:
+        parser.error('sole-margin-mm must be finite and positive')
     for name, value in PRESETS[args.preset].items():
         if getattr(args, name) is None:
             setattr(args, name, value)
@@ -327,7 +353,7 @@ def parse_args():
     if not args.input.is_file():
         parser.error(f"Input file not found: {args.input}")
     if args.out is None:
-        args.out = SCRIPT_DIR / "outputs" / args.preset
+        args.out = SCRIPT_DIR / 'outputs' / 'manual' / args.input.stem / datetime.now().strftime('%Y%m%d_%H%M%S_%f')
     args.input, args.out = args.input.resolve(), args.out.resolve()
     return args
 
@@ -444,6 +470,10 @@ def main():
                                     "removed_vertices": int(unsupported.sum())}
             mesh.remove_vertices_by_mask(unsupported)
             print(f"  Removed {unsupported.sum()} unsupported Poisson vertices", flush=True)
+        mesh, sole_report = trim_unsupported_sole(
+            mesh, np.asarray(observations.points), axis=args.sole_guard, up_sign=args.up_sign,
+            max_distance=args.sole_margin_mm * .001, workers=args.threads)
+        print(f"  Sole guard: {sole_report}", flush=True)
         mesh = clean_mesh(mesh)
         del density
     with stage("postprocess_and_decimate", timings):
@@ -525,6 +555,7 @@ def main():
         "input_points": input_count, "finite_unique_points": finite_unique_count,
         "roi_source_points": len(source.points),
         "point_denoise": point_denoise_report, "normal_estimation": normal_report,
+        "sole_guard": sole_report,
         "point_components": point_component_report, "extrapolation_trim": extrapolation_report,
         "sor_retained_points": sor_count,
         "voxel_points": voxel_count, "filtered_points": len(pcd.points),

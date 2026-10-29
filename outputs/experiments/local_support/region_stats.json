@@ -1,0 +1,35 @@
+{
+  "feet": {
+    "raw_points": 10101,
+    "mesh_vertices": 18730,
+    "nearest_raw_distance_mm": [
+      2.186084428279158,
+      8.317628289163961,
+      89.8806525545417
+    ],
+    "raw_min_x_mm": -374.9881286621094,
+    "mesh_min_x_mm": -456.3507204102165
+  },
+  "hand Y negative": {
+    "raw_points": 13656,
+    "mesh_vertices": 7078,
+    "nearest_raw_distance_mm": [
+      1.7721720814985131,
+      5.306788918782293,
+      13.143458661218697
+    ],
+    "raw_min_x_mm": 162.2158966064453,
+    "mesh_min_x_mm": 199.77184890653828
+  },
+  "hand Y positive": {
+    "raw_points": 9115,
+    "mesh_vertices": 6170,
+    "nearest_raw_distance_mm": [
+      1.645440092311896,
+      6.762464862635156,
+      21.39532085130253
+    ],
+    "raw_min_x_mm": 245.7955322265625,
+    "mesh_min_x_mm": 253.75256278012887
+  }
+}

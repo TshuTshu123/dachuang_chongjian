@@ -1,4 +1,7 @@
-"""Traditional robust local-plane fitting. All distances are in meters.
+"""内部几何工具：主体筛选、局部平面去噪和鞋底外扩约束，不单独运行。
+由 reconstruct_human.py 和 run.py 调用。输入长度单位均为米。
+
+Traditional robust local-plane fitting. All distances are in meters.
 
 No point insertion or learned prior. Queries and covariance matrices are batched
 so memory scales with batch_size * neighbors, not the square of cloud size.
@@ -6,6 +9,51 @@ so memory scales with batch_size * neighbors, not the square of cloud size.
 
 import numpy as np
 from scipy.spatial import cKDTree
+
+
+def trim_unsupported_sole(mesh, observations, axis='auto', up_sign=1,
+                          max_distance=.006, band=.12, workers=4):
+    """Remove unsupported Poisson extrapolation only near/below the feet.
+
+    Positive up along the selected axis is an explicit convention, not semantic
+    pose detection. Auto only accepts an axis clearly longer than the others.
+    Missing sole observations may produce open boundaries rather than a fake cap.
+    """
+    points = np.asarray(observations, dtype=np.float64)
+    if len(points) < 6 or not np.isfinite(points).all():
+        raise ValueError('Sole guard requires at least six finite observations')
+    if axis not in ('auto', 'x', 'y', 'z', 'off') or up_sign not in (-1, 1):
+        raise ValueError('Invalid sole axis or up direction')
+    if max_distance <= 0 or band <= 0 or not np.isfinite([max_distance, band]).all():
+        raise ValueError('Sole guard distances must be positive and finite')
+    report = {'enabled': False, 'removed_vertices': 0,
+              'note': 'Observation support constraint, not recovered true sole thickness; may open holes.'}
+    if axis == 'off':
+        return mesh, report
+    extent = np.ptp(points, axis=0)
+    order = np.argsort(extent)
+    if axis == 'auto' and extent[order[-1]] < 1.3 * extent[order[-2]]:
+        report['reason'] = 'No unambiguous vertical axis; specify x/y/z explicitly.'
+        return mesh, report
+    index = int(order[-1]) if axis == 'auto' else 'xyz'.index(axis)
+    floor = float(np.min(points[:, index] * up_sign))
+    vertices = np.asarray(mesh.vertices)
+    height = vertices[:, index] * up_sign
+    foot = height <= floor + band
+    distances = np.zeros(len(vertices))
+    distances[foot] = cKDTree(points).query(vertices[foot], workers=workers)[0]
+    remove = foot & (distances > max_distance)
+    report.update({'enabled': True, 'axis': 'xyz'[index], 'up_sign': up_sign,
+                   'support_limit_mm': max_distance * 1000, 'foot_band_mm': band * 1000,
+                   'observed_min_height_m': floor, 'removed_vertices': int(remove.sum()),
+                   'below_observed_min_before_mm': max(0., (floor - height.min()) * 1000)})
+    if remove.all():
+        raise RuntimeError('Sole guard would remove entire mesh; check coordinate units/orientation')
+    mesh.remove_vertices_by_mask(remove)
+    mesh.remove_unreferenced_vertices()
+    remaining = np.asarray(mesh.vertices)[:, index] * up_sign
+    report['below_observed_min_after_mm'] = max(0., float(floor - remaining.min()) * 1000)
+    return mesh, report
 
 
 def select_main_point_component(cloud, radius, min_points=6, proxy_voxel=0.004):
