@@ -7,6 +7,8 @@
   默认关闭鞋底删面及额外双边过滤；--refine 可显式开启额外过滤。
   默认尝试鞋底截断补面（新数据为测试功能）；--no-shoe-repair 可关闭。
   --shoe-axis x/y/z：手动指定鞋底竖直轴，默认 auto 最长轴，--up-sign -1 为负向朝上。
+  少量非流形边导致朝向失败时自动限量清理；失败原因写入 failure.json。
+  默认自动修正法线并修补孤立黑点；--normals-only 只修法线，--no-appearance 全部关闭。
 输出：outputs/models/输入名/时间/，中间结果在 intermediate，旧结果不覆盖。
 无需运行其它脚本；自动参数不等于保证恢复扫描缺失的真实细节。
 """
@@ -31,12 +33,13 @@ from mesh_refine import bilateral_mesh_filter, observation_support
 from ply_to_obj import convert_ply_to_obj
 from reconstruct_human import geometry_report, transfer_colors
 from sole_repair import shoe_plan, apply_shoe_plan
+from mesh_appearance import apply_appearance
 
 ROOT = Path(__file__).resolve().parent
 DATA = ROOT / 'data'
 OUTPUTS = ROOT / 'outputs' / 'models'
 WORKERS = min(8, os.cpu_count() or 1)
-VERSION = 5
+VERSION = 7
 
 
 def select_inputs(value=None, all_files=False, data_dir=DATA):
@@ -121,7 +124,7 @@ def file_hash(path):
 
 def fingerprint(source, unit, fast):
     code = {name: file_hash(ROOT / name) for name in
-            ('run.py', 'reconstruct_human.py', 'surface_detail.py', 'mesh_refine.py', 'ply_to_obj.py', 'sole_repair.py')}
+            ('run.py', 'reconstruct_human.py', 'surface_detail.py', 'mesh_refine.py', 'ply_to_obj.py', 'sole_repair.py', 'mesh_appearance.py')}
     return {'version': VERSION, 'source_sha256': file_hash(source), 'unit': unit,
             'fast': fast, 'code_sha256': code, 'open3d_version': o3d.__version__,
             'numpy_version': np.__version__}
@@ -165,11 +168,63 @@ def accept_refinement(before, after):
             and after['median_mm'] <= before['median_mm'] + .1)
 
 
-def reconstruct(source, unit='mm', fast=False, redo=False, sole_axis='off', up_sign=1, refine=False, no_shoe_repair=False, shoe_axis='auto'):
+def repair_small_topology_defects(mesh, base_report):
+    """Try bounded face deletion on a copy; never move surviving vertices.
+
+    Input uses meters. Remove smallest faces at overfull edges, then retain the
+    largest surface. Only accept <=0.1% loss of both faces and surface area,
+    a single orientable component, and manifold edges/vertices. Small holes
+    may remain; this is not hole filling or print certification.
+    """
+    if base_report.get('edges_with_more_than_two_faces', 0) == 0:
+        raise RuntimeError('Orientation failed without overfull edges; automatic cleanup is not applicable.')
+    candidate = copy.deepcopy(mesh)
+    before_faces = len(mesh.triangles)
+    before_area = mesh.get_surface_area()
+    candidate.remove_non_manifold_edges()
+    if not candidate.has_triangles():
+        raise RuntimeError('Topology cleanup would empty the mesh.')
+    labels, _, areas = candidate.cluster_connected_triangles()
+    candidate.remove_triangles_by_mask(np.asarray(labels) != int(np.argmax(areas)))
+    candidate.remove_unreferenced_vertices()
+    removed = before_faces - len(candidate.triangles)
+    removed_area = max(0., before_area - candidate.get_surface_area())
+    if removed > .001 * before_faces or removed_area > .001 * before_area:
+        raise RuntimeError('Topology cleanup exceeds the 0.1% face/area budget; intermediate retained.')
+    # Keep the dominant existing winding, including open meshes. Geometry QA
+    # may normalize a closed mesh; restore the majority direction afterwards.
+    reference_faces = np.asarray(candidate.triangles).copy()
+    points = np.asarray(candidate.vertices)
+    reference_cross = np.cross(points[reference_faces[:, 1]] - points[reference_faces[:, 0]],
+                               points[reference_faces[:, 2]] - points[reference_faces[:, 0]])
+    checked = geometry_report(candidate, check_intersections=False)
+    if (not checked['orientation_succeeded'] or checked['edges_with_more_than_two_faces']
+            or not checked['vertex_manifold'] or checked['connected_components'] != 1):
+        raise RuntimeError('Limited topology cleanup did not produce an orientable manifold surface.')
+    faces = np.asarray(candidate.triangles)
+    cross = np.cross(points[faces[:, 1]] - points[faces[:, 0]],
+                     points[faces[:, 2]] - points[faces[:, 0]])
+    agreement = np.sign(np.einsum('ij,ij->i', reference_cross, cross))
+    if np.dot(agreement, np.linalg.norm(reference_cross, axis=1)) < 0:
+        candidate.triangles = o3d.utility.Vector3iVector(faces[:, [0, 2, 1]].copy())
+    candidate.compute_vertex_normals()
+    return candidate, {'applied': True, 'method': 'bounded non-manifold edge face cleanup and largest component',
+                       'removed_faces': removed, 'removed_face_fraction': removed / before_faces,
+                       'removed_area_mm2': removed_area * 1e6,
+                       'removed_area_fraction': removed_area / before_area,
+                       'vertex_positions_preserved': True,
+                       'boundary_edges_before': base_report['boundary_edges'],
+                       'boundary_edges_after': checked['boundary_edges'],
+                       'checked_topology': checked,
+                       'note': 'May leave small openings. Dominant winding retained; no hole filling or self-intersection certification.'}
+
+
+def reconstruct(source, unit='mm', fast=False, redo=False, sole_axis='off', up_sign=1, refine=False, no_shoe_repair=False, shoe_axis='auto', appearance='full'):
     source = Path(source).resolve()
     started = time.perf_counter()
     signature = fingerprint(source, unit, fast)
-    signature.update(sole_axis=sole_axis, up_sign=up_sign, refine=refine, no_shoe_repair=no_shoe_repair, shoe_axis=shoe_axis)
+    signature.update(sole_axis=sole_axis, up_sign=up_sign, refine=refine, no_shoe_repair=no_shoe_repair,
+                     shoe_axis=shoe_axis, appearance=appearance)
     if not no_shoe_repair and sole_axis != 'off':
         raise ValueError('Shoe closure cannot be combined with old sole trimming; use --sole-axis off or --no-shoe-repair.')
     folder = OUTPUTS / source.stem
@@ -206,10 +261,22 @@ def reconstruct(source, unit='mm', fast=False, redo=False, sole_axis='off', up_s
     subprocess.run(command, check=True)
     base_path = run_dir / 'intermediate' / f'{source.stem}_mesh.ply'
     base_report = json.loads((run_dir / 'intermediate' / f'{source.stem}_report.json').read_text(encoding='utf-8'))
-    if not base_report['orientation_succeeded']:
-        raise RuntimeError('Triangle orientation failed. Intermediate saved for inspection; not exporting it as a successful final model.')
     mesh = o3d.io.read_triangle_mesh(str(base_path))
     mesh.scale(.001, center=np.zeros(3))
+    topology_repair = {'applied': False, 'reason': 'Base triangle orientation succeeded.'}
+    if not base_report['orientation_succeeded']:
+        print('WARNING: base orientation failed; attempting bounded topology cleanup.', flush=True)
+        try:
+            mesh, topology_repair = repair_small_topology_defects(mesh, base_report)
+        except RuntimeError as error:
+            failure_path = run_dir / 'failure.json'
+            failure_path.write_text(json.dumps({'status': 'failed', 'source': str(source),
+                                               'error': str(error), 'intermediate': str(base_path)},
+                                              ensure_ascii=False, indent=2), encoding='utf-8')
+            raise RuntimeError(f'{error} Details: {failure_path}') from error
+        print(f"Topology cleanup: removed {topology_repair['removed_faces']} faces; "
+              f"boundary edges {topology_repair['boundary_edges_before']} -> "
+              f"{topology_repair['boundary_edges_after']}; vertex positions preserved.", flush=True)
     mesh.compute_vertex_normals()
     # Work near the origin for float32 distance checks; restore it on export.
     origin = np.asarray(mesh.get_center()).copy()
@@ -256,6 +323,33 @@ def reconstruct(source, unit='mm', fast=False, redo=False, sole_axis='off', up_s
             print(f"WARNING: shoe repair skipped; original mesh retained: {shoe_report['reason']}", flush=True)
     elif not no_shoe_repair:
         print(f"WARNING: shoe repair skipped: {shoe_report['reason']}", flush=True)
+    print(f'\n[appearance: {appearance}]', flush=True)
+    appearance_axis = shoe_axis if shoe_axis != 'auto' else sole_axis if sole_axis != 'off' else 'auto'
+    try:
+        # Final coordinates are always mm, even for --unit m input. Run after
+        # color transfer and shoe closure; later stages must not reset RGB or winding.
+        final, appearance_report = apply_appearance(final, mode=appearance, up_axis=appearance_axis,
+                                                    up_sign=up_sign, unit='mm')
+    except (ValueError, RuntimeError) as error:
+        appearance_report = {'enabled': False, 'mode': appearance, 'reason': str(error),
+                             'fallback_to_previous_mesh': True}
+        print(f'WARNING: appearance processing skipped; previous mesh retained: {error}', flush=True)
+    if appearance_report['enabled']:
+        normal_result = appearance_report['normals']
+        color_result = appearance_report['color_repair']
+        print(f"Appearance: flipped {normal_result.get('flipped_faces', 0)} faces; "
+              f"repaired RGB on {color_result.get('repaired_vertices', 0)} vertices.", flush=True)
+        for name, result in [('normals', normal_result), ('color', color_result)]:
+            if not result.get('applied') and result.get('reason') != 'Explicitly disabled.':
+                print(f"Appearance {name} skipped: {result.get('reason')}", flush=True)
+    # Edge counts remain valid because appearance preserves connectivity.
+    # Distinguish the earlier QA winding from the actual exported orientation.
+    topology['global_winding']['stage'] = 'topology_qa_before_appearance'
+    centered = (np.asarray(final.vertices) - final.get_center()) * .001
+    triangles = np.asarray(final.triangles)
+    appearance_report['exported_centered_signed_flux_m3'] = float(np.einsum(
+        'ij,ij->i', centered[triangles[:, 0]],
+        np.cross(centered[triangles[:, 1]], centered[triangles[:, 2]])).sum() / 6)
     output = run_dir / f'{source.stem}_mesh.ply'
     if not o3d.io.write_triangle_mesh(str(output), final, write_vertex_normals=True, write_vertex_colors=True):
         raise OSError(f'Failed to write {output}')
@@ -268,6 +362,8 @@ def reconstruct(source, unit='mm', fast=False, redo=False, sole_axis='off', up_s
               'candidate_raw_distance': after, 'refinement_accepted': accepted,
               'candidate_movement': movement, 'base_observation_support': support,
               'final_topology': topology, 'base_report': base_report, 'shoe_repair': shoe_report,
+              'base_topology_repair': topology_repair,
+              'appearance': appearance_report,
               'notes': ['Validated scan baseline; no guarantee of best/true face reconstruction.',
                         'Extra support-weighted refinement is opt-in, not enabled by default.',
                         'Raw distances are observation fit, not ground-truth accuracy.',
@@ -294,6 +390,12 @@ def main(argv=None):
     parser.add_argument('--no-shoe-repair', action='store_true', help='Disable shoe closure; enabled by default for new-data testing.')
     parser.add_argument('--shoe-axis', choices=['auto', 'x', 'y', 'z'], default='auto', help='Shoe vertical axis; assumes positive up unless --up-sign -1.')
     parser.add_argument('--up-sign', type=int, choices=[-1, 1], default=1)
+    appearance_modes = parser.add_mutually_exclusive_group()
+    appearance_modes.add_argument('--no-appearance', dest='appearance', action='store_const', const='off',
+                                  help='Disable final normal-direction and dark-patch processing.')
+    appearance_modes.add_argument('--normals-only', dest='appearance', action='store_const', const='normals',
+                                  help='Correct final normal direction, retaining original vertex RGB.')
+    parser.set_defaults(appearance='full')
     args = parser.parse_args(argv)
     if args.input and args.all:
         parser.error('Use an input OR --all, not both.')
@@ -304,7 +406,8 @@ def main(argv=None):
     failures = []
     for source in inputs:
         try:
-            reconstruct(source, args.unit, args.fast, args.redo, args.sole_axis, args.up_sign, args.refine, args.no_shoe_repair, args.shoe_axis)
+            reconstruct(source, args.unit, args.fast, args.redo, args.sole_axis, args.up_sign,
+                        args.refine, args.no_shoe_repair, args.shoe_axis, args.appearance)
         except (OSError, ValueError, RuntimeError, subprocess.CalledProcessError) as error:
             print(f'FAILED {source.name}: {error}', file=sys.stderr, flush=True)
             failures.append(source.name)

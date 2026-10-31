@@ -1,21 +1,26 @@
 {
   "fingerprint": {
-    "version": 2,
+    "version": 7,
     "source_sha256": "318b37496e22b0b2d0b622f57fd24bd85858fc2466c64cd0986ded533ebafed9",
     "unit": "mm",
     "fast": false,
     "code_sha256": {
-      "run.py": "bc9d7e96cd66aed81086aa0258b2d651f176d6d77a95fb23d870080f056e750c",
-      "reconstruct_human.py": "7d40735bc480980df976ff3a8084b378e45e1ebbc80dc606445cc7cad3e5f0ab",
+      "run.py": "694f6df3f5aba7586f6ef627e1956c86c6976902d44a9abb071ed94e4ffa1d7d",
+      "reconstruct_human.py": "f5fb6ac8c1cc0e5e7c08cb9ffcee6042f087bb03e52fb91650924640091fcad6",
       "surface_detail.py": "df7d838d160a9e5ac17f87a6d355fc57997c27f11b9923d021adc652db47e923",
       "mesh_refine.py": "034a578e24e019a075046eeb14b2cf09c7cf5cb415daf266249185e7bba701d2",
-      "ply_to_obj.py": "d126b10245e697fbe697d4b54a9fec0061c2abbaf35fef83d1e12624f5069d72"
+      "ply_to_obj.py": "d126b10245e697fbe697d4b54a9fec0061c2abbaf35fef83d1e12624f5069d72",
+      "sole_repair.py": "a672ce7a470f305e7357075814f3eafac3c0c768fbc871e0bd1abf1b8c6292f4",
+      "mesh_appearance.py": "a917af7eac6d63c032dad10670ce900d604593612e17e7d95db13dde54f9495c"
     },
     "open3d_version": "0.19.0",
     "numpy_version": "2.4.6",
     "sole_axis": "off",
     "up_sign": 1,
-    "refine": false
+    "refine": false,
+    "no_shoe_repair": false,
+    "shoe_axis": "auto",
+    "appearance": "full"
   },
   "source": "D:\\dachuang\\chongjian(1)\\chongjian\\data\\export_00001.ply",
   "auto_settings": {
@@ -44,12 +49,12 @@
   "unit": "mm",
   "raw_queries": 6000,
   "before_raw_distance": {
-    "median_mm": 1.63168203830719,
-    "p95_mm": 6.052189350128174
+    "median_mm": 1.6316825151443481,
+    "p95_mm": 6.052182197570801
   },
   "candidate_raw_distance": {
-    "median_mm": 1.63168203830719,
-    "p95_mm": 6.052189350128174
+    "median_mm": 1.6316825151443481,
+    "p95_mm": 6.052182197570801
   },
   "refinement_accepted": false,
   "candidate_movement": {
@@ -58,10 +63,10 @@
   },
   "base_observation_support": {
     "red_insufficient_support_vertices": 9198,
-    "amber_broad_or_sparse_support_vertices": 137638,
-    "green_local_support_vertices": 48379,
-    "nearest_raw_distance_p95_mm": 3.920388494050498,
-    "local_normal_spread_median_mm": 1.8663584145527419,
+    "amber_broad_or_sparse_support_vertices": 137634,
+    "green_local_support_vertices": 48383,
+    "nearest_raw_distance_p95_mm": 3.920507201472491,
+    "local_normal_spread_median_mm": 1.8664200704101017,
     "thresholds": {
       "neighborhood_radius_mm": 8,
       "min_neighbors": 6,
@@ -71,13 +76,46 @@
     "note": "Colors show observation support, not accuracy probabilities. Spread includes real surface curvature."
   },
   "final_topology": {
+    "vertices": 194722,
+    "triangles": 389472,
+    "connected_components": 1,
+    "largest_components": [
+      {
+        "triangles": 389472,
+        "area_m2": 1.587109903313094
+      }
+    ],
+    "boundary_edges": 0,
+    "edges_with_more_than_two_faces": 0,
+    "closed_edge_manifold": true,
+    "vertex_manifold": true,
+    "orientation_succeeded": true,
+    "self_intersecting": null,
+    "global_winding": {
+      "flipped": false,
+      "centered_signed_flux_before_m3": 0.061275660318593016,
+      "note": "Diagnostic flux only. Open-surface global winding is preserved; this is not true volume.",
+      "stage": "topology_qa_before_appearance"
+    },
+    "self_intersections_checked": false,
+    "watertight": null,
+    "volume_m3_single_closed_component": 0.061275660318593494,
+    "geometry_gate_passed": null,
+    "topology_check_timings_seconds": {
+      "topology: face_orientation_and_components": 1.832,
+      "topology: edge_counts": 0.891,
+      "topology: vertex_manifold": 0.609,
+      "topology: vertex_normals": 0.009
+    }
+  },
+  "base_report": {
     "vertices": 195215,
     "triangles": 390428,
     "connected_components": 1,
     "largest_components": [
       {
         "triangles": 390428,
-        "area_m2": 1.5942111382883983
+        "area_m2": 1.5942052529311257
       }
     ],
     "boundary_edges": 32,
@@ -88,49 +126,17 @@
     "self_intersecting": null,
     "global_winding": {
       "flipped": false,
-      "centered_signed_flux_before_m3": 0.05398825734792787,
-      "note": "Global orientation heuristic; not true volume for open surfaces."
+      "centered_signed_flux_before_m3": -0.0539875616420045,
+      "note": "Diagnostic flux only. Open-surface global winding is preserved; this is not true volume."
     },
     "self_intersections_checked": false,
     "watertight": null,
     "volume_m3_single_closed_component": null,
     "geometry_gate_passed": null,
     "topology_check_timings_seconds": {
-      "topology: face_orientation_and_components": 1.842,
-      "topology: edge_counts": 0.915,
-      "topology: vertex_manifold": 0.608,
-      "topology: vertex_normals": 0.01
-    }
-  },
-  "base_report": {
-    "vertices": 195215,
-    "triangles": 390428,
-    "connected_components": 1,
-    "largest_components": [
-      {
-        "triangles": 390428,
-        "area_m2": 1.594211138288397
-      }
-    ],
-    "boundary_edges": 32,
-    "edges_with_more_than_two_faces": 0,
-    "closed_edge_manifold": false,
-    "vertex_manifold": true,
-    "orientation_succeeded": true,
-    "self_intersecting": null,
-    "global_winding": {
-      "flipped": true,
-      "centered_signed_flux_before_m3": -0.05398825734792792,
-      "note": "Global orientation heuristic; not true volume for open surfaces."
-    },
-    "self_intersections_checked": false,
-    "watertight": null,
-    "volume_m3_single_closed_component": null,
-    "geometry_gate_passed": null,
-    "topology_check_timings_seconds": {
-      "topology: face_orientation_and_components": 1.956,
-      "topology: edge_counts": 0.901,
-      "topology: vertex_manifold": 0.604,
+      "topology: face_orientation_and_components": 1.795,
+      "topology: edge_counts": 0.91,
+      "topology: vertex_manifold": 0.602,
       "topology: vertex_normals": 0.009
     },
     "color": {
@@ -140,26 +146,26 @@
       "transfer": "nearest RGB",
       "invalid_color_points_ignored": 0,
       "vertex_to_original_point": {
-        "median_mm": 1.7692591210567756,
-        "p95_mm": 3.920388494050516,
-        "max_mm": 89.88064690986337
+        "median_mm": 1.7692750745685528,
+        "p95_mm": 3.9205072014724953,
+        "max_mm": 89.88061683348971
       },
       "vertices_more_than_10mm_from_observation": 1277
     },
     "processed_observations_to_mesh": {
-      "median_mm": 1.6604505777359009,
+      "median_mm": 1.6604524850845337,
       "p95_mm": 5.978274345397949,
       "max_mm": 20.792890548706055
     },
     "sampled_mesh_to_processed_observations": {
-      "median_mm": 1.8295792140568794,
-      "p95_mm": 7.877396464772831,
-      "max_mm": 82.99438917685693
+      "median_mm": 1.8329734009611196,
+      "p95_mm": 7.883062764487733,
+      "max_mm": 83.25727671007411
     },
     "open3d_version": "0.19.0",
     "settings": {
       "input": "D:\\dachuang\\chongjian(1)\\chongjian\\data\\export_00001.ply",
-      "out": "D:\\dachuang\\chongjian(1)\\chongjian\\outputs\\models\\export_00001\\20261029_212248_041159\\intermediate",
+      "out": "D:\\dachuang\\chongjian(1)\\chongjian\\outputs\\models\\export_00001\\20261030_201645_106570\\intermediate",
       "input_unit": "mm",
       "output_unit": "mm",
       "preset": "scan",
@@ -247,7 +253,7 @@
     "input_unit": "mm",
     "output_coordinate_unit": "mm",
     "processing_coordinate_unit": "m",
-    "mesh_path": "D:\\dachuang\\chongjian(1)\\chongjian\\outputs\\models\\export_00001\\20261029_212248_041159\\intermediate\\export_00001_mesh.ply",
+    "mesh_path": "D:\\dachuang\\chongjian(1)\\chongjian\\outputs\\models\\export_00001\\20261030_201645_106570\\intermediate\\export_00001_mesh.ply",
     "meter_coordinate_origin": [
       0.41307429504394527,
       0.007374191284179682,
@@ -268,19 +274,19 @@
     "highres_closed_edge_manifold": false,
     "highres_vertex_manifold": true,
     "timings_seconds": {
-      "read_and_clean": 0.173,
-      "downsample_and_filter": 1.648,
-      "robust_point_denoise": 13.356,
-      "estimate_normals": 6.892,
-      "orient_normals": 12.161,
-      "poisson_cpu": 2.904,
-      "postprocess_and_decimate": 2.424,
-      "topology_checks": 3.523,
-      "original_rgb_transfer": 0.161,
-      "distance_qa": 0.325,
-      "write_colored_ply": 0.338
+      "read_and_clean": 0.147,
+      "downsample_and_filter": 1.514,
+      "robust_point_denoise": 13.555,
+      "estimate_normals": 6.842,
+      "orient_normals": 12.148,
+      "poisson_cpu": 2.791,
+      "postprocess_and_decimate": 2.227,
+      "topology_checks": 3.361,
+      "original_rgb_transfer": 0.163,
+      "distance_qa": 0.315,
+      "write_colored_ply": 0.322
     },
-    "total_before_visualization_seconds": 43.926,
+    "total_before_visualization_seconds": 43.4,
     "qa_note": "Distances use SOR-retained observations BEFORE optional position filtering, not ground truth. When keep-largest removes fragments, point-to-mesh maxima can include those removed fragments. Inferred surfaces have no true observed color. PLY does not store units.",
     "manual_checks": [
       "Inferred holes and anatomy",
@@ -290,6 +296,62 @@
       "Print scale, minimum thickness, orientation and supports"
     ]
   },
+  "shoe_repair": {
+    "floor_x_mm": -377.9881286621094,
+    "removed_original_vertices": 1080,
+    "new_cut_vertices": 587,
+    "closed_shoe_contours": 1,
+    "cap_triangles": 585,
+    "note": "Planar inferred caps, not measured soles or print certification. A shared contour retains existing foot connectivity; feet are not separated.",
+    "enabled": true,
+    "axis": "x",
+    "up_sign": 1,
+    "floor_up_mm": -377.9881286621094,
+    "profile": "user_approved_export_00001",
+    "experimental": false,
+    "margin_mm": 3.0,
+    "assumption": "Standing subject, positive-up by default. Not semantic foot detection.",
+    "proposed_cut_fraction": 0.00553236175498809,
+    "topology_checked_on_copy_export_winding_preserved": true
+  },
+  "base_topology_repair": {
+    "applied": false,
+    "reason": "Base triangle orientation succeeded."
+  },
+  "appearance": {
+    "enabled": true,
+    "mode": "full",
+    "normals": {
+      "applied": true,
+      "method": "adjacent-face orientation and external first-hit votes",
+      "flipped_faces": 389472,
+      "components": [
+        {
+          "faces": 389472,
+          "visible_hits": 7994,
+          "inward_fraction_before": 1.0,
+          "confident": true,
+          "flipped": true
+        }
+      ],
+      "note": "Visibility heuristic for outer surfaces; not proof of watertightness or correct nested-shell orientation."
+    },
+    "color_repair": {
+      "applied": true,
+      "method": "small dark mesh islands with harmonic boundary RGB interpolation",
+      "candidate_dark_vertices": 14278,
+      "repaired_vertices": 6978,
+      "repaired_patches": 2828,
+      "max_patch_extent_mm": 12.0,
+      "dark_luminance_threshold": 0.1,
+      "region": "body",
+      "axis": "x",
+      "up_sign": 1,
+      "note": "Appearance repair, not measured color recovery; small real black markings may be mistaken for artifacts."
+    },
+    "positions_and_face_connectivity_preserved": true,
+    "exported_centered_signed_flux_m3": 0.06127566031859299
+  },
   "notes": [
     "Validated scan baseline; no guarantee of best/true face reconstruction.",
     "Extra support-weighted refinement is opt-in, not enabled by default.",
@@ -297,19 +359,19 @@
     "Self-intersection check skipped; watertightness/print readiness unknown.",
     "OBJ RGB is a viewer-dependent vertex-color extension, not a texture."
   ],
-  "total_seconds": 55.317,
+  "total_seconds": 64.044,
   "artifacts": {
     "ply": {
       "name": "export_00001_mesh.ply",
-      "sha256": "297ceef52617c12bc49c835490162886e24ea84d6da5d4ce4f7c1b10f2026c7b"
+      "sha256": "1ce507b3a79a1d51323cc382a0a2b7453f36276c4f6cfa4f27ac51d3f03284c9"
     },
     "obj": {
       "name": "export_00001_mesh.obj",
-      "sha256": "bb282a535ff33a9386134b6c22527b84124d7d37723eb95d5b84ff2fd5686524"
+      "sha256": "9ef7c0bcf828da1a51825317972a94a2b02f5770a5f1cb67bc3e0404fc809193"
     },
     "base": {
       "name": "intermediate\\export_00001_mesh.ply",
-      "sha256": "5e9a8eb3089ceaed34c35e110004314bace8fcc2ed35a2e903635734b3cf0398"
+      "sha256": "3d7515de953fea77b54eeccc2ccd2d307ec65fed31a49f044685b03bf811d486"
     }
   }
 }

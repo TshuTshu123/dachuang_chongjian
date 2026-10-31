@@ -1,0 +1,380 @@
+{
+  "fingerprint": {
+    "version": 6,
+    "source_sha256": "cd4a35b1b820f58505c2be67edbe441ffaef23628989246ced805309c117a1a3",
+    "unit": "mm",
+    "fast": false,
+    "code_sha256": {
+      "run.py": "f5c11b156ca8fe2d785784de6c27d79eaea798a078785a9c4c73db88d1d9bbd8",
+      "reconstruct_human.py": "f5fb6ac8c1cc0e5e7c08cb9ffcee6042f087bb03e52fb91650924640091fcad6",
+      "surface_detail.py": "df7d838d160a9e5ac17f87a6d355fc57997c27f11b9923d021adc652db47e923",
+      "mesh_refine.py": "034a578e24e019a075046eeb14b2cf09c7cf5cb415daf266249185e7bba701d2",
+      "ply_to_obj.py": "d126b10245e697fbe697d4b54a9fec0061c2abbaf35fef83d1e12624f5069d72",
+      "sole_repair.py": "a672ce7a470f305e7357075814f3eafac3c0c768fbc871e0bd1abf1b8c6292f4"
+    },
+    "open3d_version": "0.19.0",
+    "numpy_version": "2.4.6",
+    "sole_axis": "off",
+    "up_sign": 1,
+    "refine": false,
+    "no_shoe_repair": false,
+    "shoe_axis": "auto"
+  },
+  "source": "D:\\dachuang\\chongjian(1)\\chongjian\\data\\export_00002.ply",
+  "auto_settings": {
+    "sampled_spacing_mm": 2.2224917870597043,
+    "local_spread_proxy_mm": 1.2629806946043742,
+    "local_spread_note": "Includes curvature; not calibrated sensor noise or accuracy.",
+    "robust_extent_mm": [
+      1569.5226861572264,
+      482.3047180175781,
+      346.5926318359375
+    ],
+    "sampled_queries": 6000,
+    "voxel_mm": 2.0,
+    "depth": 9,
+    "normal_radius_mm": 12.0,
+    "normal_neighbors": 64,
+    "point_iterations": 2,
+    "point_move_cap_mm": 1.0,
+    "cluster_radius_mm": 12.0,
+    "smooth_iterations": 2,
+    "parameter_policy": "validated_scan_baseline",
+    "policy_note": "Statistics are diagnostic, not an accuracy objective. Sparse fallback is not regression-validated.",
+    "mesh_move_cap_mm": 0.75,
+    "fast": false
+  },
+  "unit": "mm",
+  "raw_queries": 6000,
+  "before_raw_distance": {
+    "median_mm": 1.7898715734481812,
+    "p95_mm": 7.151890754699707
+  },
+  "candidate_raw_distance": {
+    "median_mm": 1.7898715734481812,
+    "p95_mm": 7.151890754699707
+  },
+  "refinement_accepted": false,
+  "candidate_movement": {
+    "method": "skipped; validated baseline retained",
+    "movement_max_mm": 0.0
+  },
+  "base_observation_support": {
+    "red_insufficient_support_vertices": 11558,
+    "amber_broad_or_sparse_support_vertices": 152299,
+    "green_local_support_vertices": 44090,
+    "nearest_raw_distance_p95_mm": 4.316521542206974,
+    "local_normal_spread_median_mm": 2.012290087514811,
+    "thresholds": {
+      "neighborhood_radius_mm": 8,
+      "min_neighbors": 6,
+      "unsupported_nearest_distance_mm": 10,
+      "amber_spread_mm": 1.5
+    },
+    "note": "Colors show observation support, not accuracy probabilities. Spread includes real surface curvature."
+  },
+  "final_topology": {
+    "vertices": 207492,
+    "triangles": 415002,
+    "connected_components": 1,
+    "largest_components": [
+      {
+        "triangles": 415002,
+        "area_m2": 1.7669178347992078
+      }
+    ],
+    "boundary_edges": 12,
+    "edges_with_more_than_two_faces": 0,
+    "closed_edge_manifold": false,
+    "vertex_manifold": true,
+    "orientation_succeeded": true,
+    "self_intersecting": null,
+    "global_winding": {
+      "flipped": false,
+      "centered_signed_flux_before_m3": 0.07046315432464492,
+      "note": "Diagnostic flux only. Open-surface global winding is preserved; this is not true volume."
+    },
+    "self_intersections_checked": false,
+    "watertight": null,
+    "volume_m3_single_closed_component": null,
+    "geometry_gate_passed": null,
+    "topology_check_timings_seconds": {
+      "topology: face_orientation_and_components": 1.948,
+      "topology: edge_counts": 0.957,
+      "topology: vertex_manifold": 0.659,
+      "topology: vertex_normals": 0.009
+    }
+  },
+  "base_report": {
+    "vertices": 207984,
+    "triangles": 415972,
+    "connected_components": 1,
+    "largest_components": [
+      {
+        "triangles": 415972,
+        "area_m2": 1.7803659641786926
+      }
+    ],
+    "boundary_edges": 30,
+    "edges_with_more_than_two_faces": 15,
+    "closed_edge_manifold": false,
+    "vertex_manifold": true,
+    "orientation_succeeded": false,
+    "self_intersecting": null,
+    "global_winding": {
+      "flipped": false,
+      "centered_signed_flux_before_m3": null,
+      "note": "Diagnostic flux only. Open-surface global winding is preserved; this is not true volume."
+    },
+    "self_intersections_checked": false,
+    "watertight": null,
+    "volume_m3_single_closed_component": null,
+    "geometry_gate_passed": null,
+    "topology_check_timings_seconds": {
+      "topology: face_orientation_and_components": 1.71,
+      "topology: edge_counts": 0.99,
+      "topology: vertex_manifold": 0.681,
+      "topology: vertex_normals": 0.009
+    },
+    "color": {
+      "preserved": true,
+      "source": "original finite unique input points",
+      "neighbors": 1,
+      "transfer": "nearest RGB",
+      "invalid_color_points_ignored": 0,
+      "vertex_to_original_point": {
+        "median_mm": 1.8349700223476197,
+        "p95_mm": 4.31700726799993,
+        "max_mm": 89.20727696891925
+      },
+      "vertices_more_than_10mm_from_observation": 1346
+    },
+    "processed_observations_to_mesh": {
+      "median_mm": 1.7794615030288696,
+      "p95_mm": 6.76924991607666,
+      "max_mm": 21.06374740600586
+    },
+    "sampled_mesh_to_processed_observations": {
+      "median_mm": 1.9282912381901294,
+      "p95_mm": 7.3065521476178645,
+      "max_mm": 87.70863062386498
+    },
+    "open3d_version": "0.19.0",
+    "settings": {
+      "input": "D:\\dachuang\\chongjian(1)\\chongjian\\data\\export_00002.ply",
+      "out": "D:\\dachuang\\chongjian(1)\\chongjian\\outputs\\models\\export_00002\\20261030_194402_089431\\intermediate",
+      "input_unit": "mm",
+      "output_unit": "mm",
+      "preset": "scan",
+      "voxel": 0.002,
+      "depth": 9,
+      "faces": 0,
+      "threads": 8,
+      "outlier_neighbors": 20,
+      "outlier_std": 2.5,
+      "normal_radius": 0.012,
+      "normal_max_nn": 64,
+      "normal_method": "robust",
+      "point_denoise_iterations": 2,
+      "point_denoise_max_move_mm": 1.0,
+      "point_components": "largest",
+      "point_cluster_radius_mm": 12.0,
+      "max_extrapolation_mm": 0.0,
+      "crop_bounds": null,
+      "orient_k": 30,
+      "poisson_scale": 1.1,
+      "trim_quantile": 0.0,
+      "keep_largest": true,
+      "smooth_iterations": 2,
+      "color_k": 1,
+      "qa_samples": 5000,
+      "skip_self_intersections": true,
+      "save_intermediates": false,
+      "sole_guard": "off",
+      "up_sign": 1,
+      "sole_margin_mm": 6.0,
+      "preview_normals": false,
+      "no_vis": true,
+      "overwrite": false
+    },
+    "input_points": 301115,
+    "finite_unique_points": 301115,
+    "roi_source_points": 301115,
+    "point_denoise": {
+      "method": "robust local-plane damped projection",
+      "iterations": 2,
+      "total_displacement_limit_mm": 1.0,
+      "moved_points": 40959,
+      "movement_median_mm": 0.0,
+      "movement_p95_mm": 0.8209802325512228,
+      "movement_max_mm": 0.9999999984966363,
+      "per_iteration": [
+        {
+          "supported_points": 279068,
+          "eligible_flat_points": 34095
+        },
+        {
+          "supported_points": 279069,
+          "eligible_flat_points": 40636
+        }
+      ]
+    },
+    "normal_estimation": {
+      "method": "robust",
+      "robust_fitted_points": 279067,
+      "legacy_fallback_points": 312,
+      "median_neighborhood_points": 64.0
+    },
+    "sole_guard": {
+      "enabled": false,
+      "removed_vertices": 0,
+      "note": "Observation support constraint, not recovered true sole thickness; may open holes."
+    },
+    "point_components": {
+      "method": "largest DBSCAN cluster on 4mm proxy",
+      "proxy_voxel_mm": 4.0,
+      "radius_mm": 12.0,
+      "min_points": 6,
+      "proxy_clusters": 11,
+      "input_points": 279797,
+      "kept_points": 279379,
+      "removed_points": 418
+    },
+    "extrapolation_trim": {
+      "enabled": false,
+      "removed_vertices": 0
+    },
+    "sor_retained_points": 279797,
+    "voxel_points": 280979,
+    "filtered_points": 279379,
+    "input_unit": "mm",
+    "output_coordinate_unit": "mm",
+    "processing_coordinate_unit": "m",
+    "mesh_path": "D:\\dachuang\\chongjian(1)\\chongjian\\outputs\\models\\export_00002\\20261030_194402_089431\\intermediate\\export_00002_mesh.ply",
+    "meter_coordinate_origin": [
+      0.43392753601074224,
+      0.03550732421875,
+      1.2015809936523438
+    ],
+    "extent_m": [
+      1.6194722038082165,
+      0.528719482421875,
+      0.4045948486328125
+    ],
+    "median_sampled_point_spacing_mm": 2.431836116948849,
+    "finest_poisson_cube_cell_mm": 3.4793348128692156,
+    "poisson_resolution_note": "Nominal finest cube cell size, not guaranteed surface accuracy; octree is adaptive.",
+    "triangles_before_decimation": 415972,
+    "target_triangles": 0,
+    "components_before_selection": 16,
+    "removed_non_main_component_faces": 260,
+    "highres_closed_edge_manifold": false,
+    "highres_vertex_manifold": true,
+    "timings_seconds": {
+      "read_and_clean": 0.127,
+      "downsample_and_filter": 1.814,
+      "robust_point_denoise": 16.419,
+      "estimate_normals": 7.167,
+      "orient_normals": 12.936,
+      "poisson_cpu": 3.25,
+      "postprocess_and_decimate": 2.455,
+      "topology_checks": 3.394,
+      "original_rgb_transfer": 0.166,
+      "distance_qa": 0.312,
+      "write_colored_ply": 0.367
+    },
+    "total_before_visualization_seconds": 48.428,
+    "qa_note": "Distances use SOR-retained observations BEFORE optional position filtering, not ground truth. When keep-largest removes fragments, point-to-mesh maxima can include those removed fragments. Inferred surfaces have no true observed color. PLY does not store units.",
+    "manual_checks": [
+      "Inferred holes and anatomy",
+      "Nearby finger/limb bridges",
+      "Disconnected components",
+      "Color on inferred surfaces",
+      "Print scale, minimum thickness, orientation and supports"
+    ]
+  },
+  "shoe_repair": {
+    "floor_x_mm": -378.80856589336605,
+    "removed_original_vertices": 1078,
+    "new_cut_vertices": 623,
+    "closed_shoe_contours": 1,
+    "cap_triangles": 621,
+    "note": "Planar inferred caps, not measured soles or print certification. A shared contour retains existing foot connectivity; feet are not separated.",
+    "enabled": true,
+    "axis": "x",
+    "up_sign": 1,
+    "floor_up_mm": -378.80856589336605,
+    "profile": "new_scan_experimental",
+    "experimental": true,
+    "margin_mm": 3.0,
+    "assumption": "Standing subject, positive-up by default. Not semantic foot detection.",
+    "proposed_cut_fraction": 0.0051840132341413915,
+    "topology_checked_on_copy_export_winding_preserved": true
+  },
+  "base_topology_repair": {
+    "applied": true,
+    "method": "bounded non-manifold edge face cleanup and largest component",
+    "removed_faces": 88,
+    "removed_face_fraction": 0.00021155270066254458,
+    "removed_area_mm2": 220.9610186969524,
+    "removed_area_fraction": 0.00012410988703599464,
+    "vertex_positions_preserved": true,
+    "boundary_edges_before": 30,
+    "boundary_edges_after": 42,
+    "checked_topology": {
+      "vertices": 207947,
+      "triangles": 415884,
+      "connected_components": 1,
+      "largest_components": [
+        {
+          "triangles": 415884,
+          "area_m2": 1.7801450031599961
+        }
+      ],
+      "boundary_edges": 42,
+      "edges_with_more_than_two_faces": 0,
+      "closed_edge_manifold": false,
+      "vertex_manifold": true,
+      "orientation_succeeded": true,
+      "self_intersecting": null,
+      "global_winding": {
+        "flipped": false,
+        "centered_signed_flux_before_m3": 0.06277400936187623,
+        "note": "Diagnostic flux only. Open-surface global winding is preserved; this is not true volume."
+      },
+      "self_intersections_checked": false,
+      "watertight": null,
+      "volume_m3_single_closed_component": null,
+      "geometry_gate_passed": null,
+      "topology_check_timings_seconds": {
+        "topology: face_orientation_and_components": 1.872,
+        "topology: edge_counts": 0.968,
+        "topology: vertex_manifold": 0.669,
+        "topology: vertex_normals": 0.009
+      }
+    },
+    "note": "May leave small openings. Dominant winding retained; no hole filling or self-intersection certification."
+  },
+  "notes": [
+    "Validated scan baseline; no guarantee of best/true face reconstruction.",
+    "Extra support-weighted refinement is opt-in, not enabled by default.",
+    "Raw distances are observation fit, not ground-truth accuracy.",
+    "Self-intersection check skipped; watertightness/print readiness unknown.",
+    "OBJ RGB is a viewer-dependent vertex-color extension, not a texture."
+  ],
+  "total_seconds": 71.525,
+  "artifacts": {
+    "ply": {
+      "name": "export_00002_mesh.ply",
+      "sha256": "4b60e81d15edfa6464d96150059f3d57bca49349a5025ec3222ad885ab86cb40"
+    },
+    "obj": {
+      "name": "export_00002_mesh.obj",
+      "sha256": "71e330f4c6e32a3341113c59f2664695dc48a3f19f3c23efc7ede3839647a967"
+    },
+    "base": {
+      "name": "intermediate\\export_00002_mesh.ply",
+      "sha256": "0690be874a9d8daf3d2871fb16544c490022e5b3de99cdc29641d4a969fd62a6"
+    }
+  }
+}

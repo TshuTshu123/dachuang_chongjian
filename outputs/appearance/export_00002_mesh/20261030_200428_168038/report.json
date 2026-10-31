@@ -1,0 +1,36 @@
+{
+  "source": "D:\\dachuang\\chongjian(1)\\chongjian\\outputs\\models\\export_00002\\20261030_194402_089431\\export_00002_mesh.ply",
+  "source_sha256": "4b60e81d15edfa6464d96150059f3d57bca49349a5025ec3222ad885ab86cb40",
+  "output": "D:\\dachuang\\chongjian(1)\\chongjian\\outputs\\appearance\\export_00002_mesh\\20261030_200428_168038\\export_00002_mesh_appearance.ply",
+  "unit": "mm",
+  "positions_and_face_connectivity_preserved": true,
+  "normals": {
+    "applied": true,
+    "method": "adjacent-face orientation and external first-hit votes",
+    "flipped_faces": 0,
+    "components": [
+      {
+        "faces": 415002,
+        "visible_hits": 7601,
+        "inward_fraction_before": 0.0,
+        "confident": true,
+        "flipped": false
+      }
+    ],
+    "note": "Visibility heuristic for outer surfaces; not proof of watertightness or correct nested-shell orientation."
+  },
+  "color_repair": {
+    "applied": true,
+    "method": "small dark mesh islands with harmonic boundary RGB interpolation",
+    "candidate_dark_vertices": 13297,
+    "repaired_vertices": 5594,
+    "repaired_patches": 2279,
+    "max_patch_extent_mm": 12.0,
+    "dark_luminance_threshold": 0.1,
+    "region": "body",
+    "axis": "x",
+    "up_sign": 1,
+    "note": "Appearance repair, not measured color recovery; small real black markings may be mistaken for artifacts."
+  },
+  "note": "Independent appearance variant. Original reconstruction unchanged; no geometry smoothing, exposure boost, or print certification."
+}
