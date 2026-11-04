@@ -2,6 +2,8 @@
   python run.py              处理 data 中最新修改的 PLY
   python run.py 3            处理 export_00003.ply，也可直接写 PLY 路径
   --all：处理全部数据；--redo：忽略缓存重建；--fast：粗略快速预览
+  --kind auto：自动判断人体，否则走通用物体；human/object 可手动指定。
+  默认尝试通过质量筛选的面部/身体轻度表面整理，手部保持固定；--no-surface-refine 关闭。
   --unit m：输入为米（默认 mm）；--sole-axis x：显式开启鞋底约束并指定竖直轴
   --up-sign -1：该轴负向朝上；--sole-axis off：关闭鞋底外扩约束
   默认关闭鞋底删面及额外双边过滤；--refine 可显式开启额外过滤。
@@ -9,6 +11,9 @@
   --shoe-axis x/y/z：手动指定鞋底竖直轴，默认 auto 最长轴，--up-sign -1 为负向朝上。
   少量非流形边导致朝向失败时自动限量清理；失败原因写入 failure.json。
   默认自动修正法线并修补孤立黑点；--normals-only 只修法线，--no-appearance 全部关闭。
+  默认仅附加 Meta/Sapiens 的 body_parts.json，不修改手部；--no-segmentation 跳过识别。
+  --hand-refine：显式试用已撤回的掌面限厚/平滑；--no-hand-refine 保持关闭（默认）。
+  --seg-python 路径：GPU Python（默认本机 test0）；--seg-axis x/y/z：指定识别竖直轴。
 输出：outputs/models/输入名/时间/，中间结果在 intermediate，旧结果不覆盖。
 无需运行其它脚本；自动参数不等于保证恢复扫描缺失的真实细节。
 """
@@ -22,6 +27,9 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import shutil
+import tempfile
+import uuid
 import time
 from datetime import datetime
 
@@ -34,12 +42,16 @@ from ply_to_obj import convert_ply_to_obj
 from reconstruct_human import geometry_report, transfer_colors
 from sole_repair import shoe_plan, apply_shoe_plan
 from mesh_appearance import apply_appearance
+from body_parts import ensure_body_parts, DEFAULT_GPU_PYTHON
+from palm_pipeline import refine_hands
+from scene_policy import classify_parts, generic_observation_trim, repair_generic_topology
+from surface_evaluation import refine_surface
 
 ROOT = Path(__file__).resolve().parent
 DATA = ROOT / 'data'
 OUTPUTS = ROOT / 'outputs' / 'models'
 WORKERS = min(8, os.cpu_count() or 1)
-VERSION = 7
+VERSION = 14
 
 
 def select_inputs(value=None, all_files=False, data_dir=DATA):
@@ -122,9 +134,26 @@ def file_hash(path):
     return digest.hexdigest()
 
 
+def publish_with_inherited_permissions(source, destination):
+    """Atomically publish through an ordinary sibling, inheriting output ACLs.
+    Never rename directly out of TemporaryDirectory: Windows 0700 temp ACLs
+    would follow the file and block the other account from opening/deleting it.
+    """
+    source=Path(source);destination=Path(destination)
+    staging=destination.with_name(f'.{destination.stem}.{uuid.uuid4().hex}.publish{destination.suffix}')
+    try:
+        with source.open('rb') as reader,staging.open('xb') as writer:
+            shutil.copyfileobj(reader,writer,1024*1024)
+        staging.replace(destination)
+    finally:
+        staging.unlink(missing_ok=True)
+
+
 def fingerprint(source, unit, fast):
     code = {name: file_hash(ROOT / name) for name in
-            ('run.py', 'reconstruct_human.py', 'surface_detail.py', 'mesh_refine.py', 'ply_to_obj.py', 'sole_repair.py', 'mesh_appearance.py')}
+            ('run.py', 'reconstruct_human.py', 'surface_detail.py', 'mesh_refine.py', 'ply_to_obj.py', 'sole_repair.py', 'mesh_appearance.py',
+             'palm_pipeline.py', 'hand_pipeline.py', 'finger_restore.py', 'scene_policy.py', 'surface_quality.py', 'surface_evaluation.py', 'body_parts.py', 'tools/sapiens/infer.py', 'tools/sapiens/render_views.py',
+             'tools/sapiens/checkpoint_manifest.json', 'tools/sapiens/vendor/classes_and_palettes.py')}
     return {'version': VERSION, 'source_sha256': file_hash(source), 'unit': unit,
             'fast': fast, 'code_sha256': code, 'open3d_version': o3d.__version__,
             'numpy_version': np.__version__}
@@ -150,6 +179,164 @@ def cached_result(folder, signature):
         except (OSError, ValueError, KeyError, TypeError):
             continue
     return None
+
+
+def add_body_part_positions(report_path, enabled=True, gpu_python=None, axis='auto', up_sign=1):
+    """Optional sidecar has its own cache; it must not change/rebuild geometry."""
+    report_path=Path(report_path)
+    report=json.loads(report_path.read_text(encoding='utf-8'))
+    if report.get('subject',{}).get('kind') in ('object','unknown'):
+        source=report_path.parent/report['artifacts']['ply']['name']
+        sidecar=report_path.parent/'body_parts.json'
+        data={'schema_version':1,'status':'not_detected' if report['subject']['kind']=='object' else 'unavailable',
+              'mesh':{'file':source.name,'sha256':file_hash(source)},'subject':report['subject'],'parts':{},
+              'reason':'Generic object branch; human position labels are not assigned.'}
+        sidecar.write_text(json.dumps(data,ensure_ascii=False,indent=2),encoding='utf-8')
+        report['segmentation']={'status':data['status'],'path':str(sidecar),'sha256':file_hash(sidecar)}
+        report_path.write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf-8')
+        return report
+    if enabled:
+        source=report_path.parent/report['artifacts']['ply']['name']
+        started=time.perf_counter()
+        try:
+            result=ensure_body_parts(source,gpu_python=gpu_python,axis=axis,up_sign=up_sign,
+                                     output=report_path.parent/'body_parts.json')
+        except Exception as error:
+            # Segmentation is an auxiliary feature. Keep a successfully exported
+            # reconstruction even if its environment or optional code fails.
+            reason=f'{type(error).__name__}: {error}'
+            sidecar=report_path.parent/'body_parts.json'
+            sidecar.write_text(json.dumps({'schema_version':1,'status':'failed','reason':reason,
+                                         'mesh_file':source.name,'parts':{}},ensure_ascii=False),encoding='utf-8')
+            result={'status':'failed','path':str(sidecar),'reason':reason}
+            print(f'WARNING: body-part file failed; reconstruction retained: {reason}',flush=True)
+        result['elapsed_seconds']=round(time.perf_counter()-started,3)
+        report['segmentation']=result
+    else:
+        report['segmentation']={'status':'disabled','reason':'Explicit --no-segmentation; existing position file, if any, is not deleted.'}
+    report_path.write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf-8')
+    return report
+
+
+def add_geometry_postprocess(report_path, enabled=True, raw_unit='mm', stage='hands'):
+    """Apply once; stage PLY/OBJ/positions together and roll back on export errors."""
+    report_path = Path(report_path)
+    report = json.loads(report_path.read_text(encoding='utf-8'))
+    field='surface_quality' if stage=='surface' else 'hand_refinement'
+    if not enabled:
+        report[field] = {'status': 'disabled', 'applied': False}
+    elif report.get(field, {}).get('status') == 'complete':
+        print(f'{stage}: reusing completed result (no repeated smoothing).', flush=True)
+        return report
+    elif report.get('segmentation', {}).get('status') != 'complete':
+        report[field] = {'status': 'skipped', 'applied': False, 'reason': 'Body-part positions unavailable'}
+    else:
+        started = time.perf_counter()
+        mesh_path = report_path.parent/report['artifacts']['ply']['name']
+        obj_path = report_path.parent/report['artifacts']['obj']['name']
+        final_mesh = report_path.parent/(Path(report['source']).stem+'_mesh.ply')
+        final_obj = final_mesh.with_suffix('.obj')
+        positions = report_path.parent/'body_parts.json'
+        try:
+            print(f'\n[{stage}: bounded geometry candidate and quality checks]', flush=True)
+            original_hash = file_hash(mesh_path)
+            if stage=='surface':
+                mesh=o3d.io.read_triangle_mesh(str(mesh_path))
+                raw=np.asarray(o3d.io.read_point_cloud(report['source']).points).copy()
+                raw=raw[np.isfinite(raw).all(1)]*(1000 if raw_unit=='m' else 1)
+                data=json.loads(positions.read_text(encoding='utf-8'))
+                if data['mesh']['sha256']!=original_hash:raise ValueError('Positions do not match the mesh')
+                candidate,result=refine_surface(mesh,raw,data['parts'])
+            else:candidate, result = refine_hands(mesh_path, positions)
+            if result['applied']:
+                data = json.loads(positions.read_text(encoding='utf-8'))
+                with tempfile.TemporaryDirectory(prefix='.hands_', dir=report_path.parent) as scratch:
+                    scratch = Path(scratch)
+                    new_mesh = scratch/final_mesh.name; new_obj = scratch/final_obj.name; new_positions = scratch/positions.name
+                    if not o3d.io.write_triangle_mesh(str(new_mesh), candidate, write_vertex_normals=True, write_vertex_colors=True):
+                        raise OSError('Hand candidate PLY export failed')
+                    convert_ply_to_obj(new_mesh, new_obj, vertex_colors=True)
+                    vertices = np.asarray(o3d.io.read_triangle_mesh(str(new_mesh)).vertices)
+                    # Labels follow unchanged vertex indices; refresh all geometric
+                    # fields/hash, explicitly recording that labels were transported.
+                    for part in data['parts'].values():
+                        ids = part['vertex_indices']
+                        if ids:
+                            points = vertices[ids]
+                            part['center_mm'] = points.mean(0).tolist()
+                            part['bbox_mm'] = {'min': points.min(0).tolist(), 'max': points.max(0).tolist()}
+                    digest = file_hash(new_mesh)
+                    data['mesh']['sha256'] = digest
+                    data['mesh']['file'] = final_mesh.name
+                    data['fingerprint']['mesh_sha256'] = digest
+                    data['geometry_update'] = {'method': result['method'], 'source_mesh_sha256': original_hash,
+                                               'labels_transported_by_unchanged_vertex_indices': True}
+                    data['notes'].append(f'{stage} geometry updated after inference; labels transported with stable indices, centers/bounds/hash refreshed.')
+                    new_positions.write_text(json.dumps(data, ensure_ascii=False, separators=(',', ':')), encoding='utf-8')
+                    files = [(new_obj, final_obj), (new_mesh, final_mesh), (new_positions, positions)]
+                    existing={}
+                    for index, (_, destination) in enumerate(files):
+                        existing[index]=destination.exists()
+                        if existing[index]:shutil.copyfile(destination, scratch/f'backup_{index}')
+                    try:
+                        for staged, destination in files: publish_with_inherited_permissions(staged,destination)
+                    except Exception:
+                        for index, (_, destination) in enumerate(files):
+                            if existing[index]:publish_with_inherited_permissions(scratch/f'backup_{index}',destination)
+                            else:destination.unlink(missing_ok=True)
+                        raise
+                for key, path in [('ply', final_mesh), ('obj', final_obj)]:
+                    report['artifacts'][key]={'name':path.name,'sha256':file_hash(path)}
+                report['segmentation']['sha256'] = file_hash(positions)
+                report['segmentation']['labels_transported_after_'+field] = True
+                xyz = (np.asarray(candidate.vertices)-candidate.get_center())*.001
+                faces = np.asarray(candidate.triangles)
+                report['appearance']['exported_centered_signed_flux_m3'] = float(np.einsum(
+                    'ij,ij->i', xyz[faces[:, 0]], np.cross(xyz[faces[:, 1]], xyz[faces[:, 2]])).sum()/6)
+            result['elapsed_seconds'] = round(time.perf_counter()-started, 3)
+            report[field] = result
+            print(f"Hands: {'applied' if result['applied'] else 'original retained'}; "
+                  f"method={result['method']}; "
+                  f"new local intersections={result.get('new_local_intersections', result.get('new_intersections',0))}", flush=True)
+        except Exception as error:
+            report[field] = {'status': 'failed', 'applied': False, 'reason': str(error)}
+            print(f'WARNING: hand refinement skipped: {error}', flush=True)
+    report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
+    return report
+
+
+def add_hand_refinement(report_path,enabled=True,raw_unit='mm'):
+    return add_geometry_postprocess(report_path,enabled,raw_unit,'hands')
+
+
+def add_surface_quality(report_path,enabled=True,raw_unit='mm'):
+    return add_geometry_postprocess(report_path,enabled,raw_unit,'surface')
+
+
+def finalize_model_files(report_path):
+    """Publish canonical filenames once, including skipped/failed hand stages."""
+    report_path=Path(report_path);report=json.loads(report_path.read_text(encoding='utf-8'))
+    stem=Path(report['source']).stem
+    for key,extension in [('obj','.obj'),('ply','.ply')]:
+        source=report_path.parent/report['artifacts'][key]['name']
+        target=report_path.parent/(stem+'_mesh'+extension)
+        if source.resolve()!=target.resolve():
+            shutil.copyfile(source,target)
+            report['artifacts'][key]={'name':target.name,'sha256':file_hash(target)}
+    positions=report_path.parent/'body_parts.json'
+    if positions.exists():
+        data=json.loads(positions.read_text(encoding='utf-8'))
+        if data.get('status')=='complete':
+            data['mesh']['file']=report['artifacts']['ply']['name']
+            positions.write_text(json.dumps(data,ensure_ascii=False,separators=(',',':')),encoding='utf-8')
+            report['segmentation']['sha256']=file_hash(positions)
+    # Pre-hand files are disposable; the base reconstruction remains for review.
+    for extension in ('.ply','.obj'):
+        temporary=report_path.parent/'intermediate'/(stem+'_pre_hands'+extension)
+        try:temporary.unlink(missing_ok=True)
+        except OSError:pass
+    report_path.write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf-8')
+    return report
 
 
 def distance_check(mesh, sample_m):
@@ -219,12 +406,18 @@ def repair_small_topology_defects(mesh, base_report):
                        'note': 'May leave small openings. Dominant winding retained; no hole filling or self-intersection certification.'}
 
 
-def reconstruct(source, unit='mm', fast=False, redo=False, sole_axis='off', up_sign=1, refine=False, no_shoe_repair=False, shoe_axis='auto', appearance='full'):
+def reconstruct(source, unit='mm', fast=False, redo=False, sole_axis='off', up_sign=1, refine=False, no_shoe_repair=False, shoe_axis='auto', appearance='full', segmentation=True, seg_python=None, seg_axis='auto', hand_refine=False, kind='auto', surface_refine=True):
     source = Path(source).resolve()
     started = time.perf_counter()
     signature = fingerprint(source, unit, fast)
     signature.update(sole_axis=sole_axis, up_sign=up_sign, refine=refine, no_shoe_repair=no_shoe_repair,
-                     shoe_axis=shoe_axis, appearance=appearance)
+                     shoe_axis=shoe_axis, appearance=appearance, hand_refine=bool(hand_refine and segmentation),kind=kind,surface_refine=bool(surface_refine and segmentation))
+    if kind=='auto':
+        signature['subject_detection']={'enabled':segmentation,'python':str(Path(seg_python or DEFAULT_GPU_PYTHON).resolve()),'axis':seg_axis}
+    if hand_refine and segmentation:
+        signature['hand_segmentation'] = {'python': str(Path(seg_python or DEFAULT_GPU_PYTHON).resolve()), 'axis': seg_axis}
+    if surface_refine and segmentation:
+        signature['surface_segmentation']={'python':str(Path(seg_python or DEFAULT_GPU_PYTHON).resolve()),'axis':seg_axis}
     if not no_shoe_repair and sole_axis != 'off':
         raise ValueError('Shoe closure cannot be combined with old sole trimming; use --sole-axis off or --no-shoe-repair.')
     folder = OUTPUTS / source.stem
@@ -232,6 +425,10 @@ def reconstruct(source, unit='mm', fast=False, redo=False, sole_axis='off', up_s
     if cached:
         path, report = cached
         print(f"Unchanged input/code; reusing: {path.parent / report['artifacts']['ply']['name']}", flush=True)
+        add_body_part_positions(path,segmentation,seg_python,seg_axis,up_sign)
+        add_hand_refinement(path,hand_refine and segmentation and report.get('subject',{}).get('kind')=='human',unit)
+        add_surface_quality(path,surface_refine and segmentation and report.get('subject',{}).get('kind')=='human',unit)
+        finalize_model_files(path)
         return path
     cloud = o3d.io.read_point_cloud(str(source))
     cloud.remove_non_finite_points()
@@ -256,27 +453,43 @@ def reconstruct(source, unit='mm', fast=False, redo=False, sole_axis='off', up_s
                '--point-denoise-max-move-mm', str(settings['point_move_cap_mm']),
                '--point-cluster-radius-mm', str(settings['cluster_radius_mm']),
                '--smooth-iterations', str(settings['smooth_iterations']), '--qa-samples', '5000', '--threads', str(WORKERS),
-               '--sole-guard', sole_axis, '--up-sign', str(up_sign),
+               '--sole-guard', sole_axis if kind=='human' else 'off', '--up-sign', str(up_sign),
                '--sole-margin-mm', str(max(6., settings['voxel_mm'] * 3))]
     subprocess.run(command, check=True)
     base_path = run_dir / 'intermediate' / f'{source.stem}_mesh.ply'
     base_report = json.loads((run_dir / 'intermediate' / f'{source.stem}_report.json').read_text(encoding='utf-8'))
     mesh = o3d.io.read_triangle_mesh(str(base_path))
+    if kind=='auto' and segmentation:
+        probe=run_dir/'intermediate'/'subject_probe.json'
+        ensure_body_parts(base_path,gpu_python=seg_python,axis=seg_axis,up_sign=up_sign,output=probe)
+        subject=classify_parts(json.loads(probe.read_text(encoding='utf-8')))
+    else:
+        subject={'kind':kind if kind!='auto' else 'unknown','reason':'Explicit type override.' if kind!='auto' else 'Recognition disabled; generic fallback.'}
+    human=subject['kind']=='human'
+    print(f"Subject: {subject['kind']}; {subject['reason']}",flush=True)
+    object_trim={'applied':False}
+    if not human:mesh,object_trim=generic_observation_trim(mesh,points_mm,settings['voxel_mm'])
     mesh.scale(.001, center=np.zeros(3))
     topology_repair = {'applied': False, 'reason': 'Base triangle orientation succeeded.'}
-    if not base_report['orientation_succeeded']:
+    if not human:
+        mesh,topology_repair=repair_generic_topology(mesh)
+    elif not base_report['orientation_succeeded']:
         print('WARNING: base orientation failed; attempting bounded topology cleanup.', flush=True)
         try:
             mesh, topology_repair = repair_small_topology_defects(mesh, base_report)
         except RuntimeError as error:
-            failure_path = run_dir / 'failure.json'
-            failure_path.write_text(json.dumps({'status': 'failed', 'source': str(source),
-                                               'error': str(error), 'intermediate': str(base_path)},
-                                              ensure_ascii=False, indent=2), encoding='utf-8')
-            raise RuntimeError(f'{error} Details: {failure_path}') from error
-        print(f"Topology cleanup: removed {topology_repair['removed_faces']} faces; "
-              f"boundary edges {topology_repair['boundary_edges_before']} -> "
-              f"{topology_repair['boundary_edges_after']}; vertex positions preserved.", flush=True)
+            if not human:
+                topology_repair={'applied':False,'reason':str(error),'status':'generic_preview_with_topology_defects',
+                                 'note':'Export for viewing only; not certified manifold or watertight.'}
+                print(f'WARNING: generic mesh exported with recorded topology defects: {error}',flush=True)
+            else:
+                failure_path = run_dir / 'failure.json'
+                failure_path.write_text(json.dumps({'status': 'failed', 'source': str(source),
+                                                   'error': str(error), 'intermediate': str(base_path)},
+                                                  ensure_ascii=False, indent=2), encoding='utf-8')
+                raise RuntimeError(f'{error} Details: {failure_path}') from error
+        if topology_repair['applied']:
+            print(f"Topology cleanup: removed {topology_repair['removed_faces']} faces; vertex positions preserved.",flush=True)
     mesh.compute_vertex_normals()
     # Work near the origin for float32 distance checks; restore it on export.
     origin = np.asarray(mesh.get_center()).copy()
@@ -302,7 +515,8 @@ def reconstruct(source, unit='mm', fast=False, redo=False, sole_axis='off', up_s
     transfer_colors(final, cloud, np.zeros(3), 1, WORKERS)
     final.translate(origin)
     final.scale(1000, center=np.zeros(3))
-    plan = shoe_plan(base_report, signature['source_sha256'] if unit == 'mm' else '', not no_shoe_repair, shoe_axis, up_sign)
+    plan = shoe_plan(base_report, signature['source_sha256'] if unit == 'mm' else '', human and not no_shoe_repair, shoe_axis, up_sign)
+    if not human:plan={'enabled':False,'reason':'Generic object branch; shoe cutting disabled.'}
     shoe_report = dict(plan)
     if plan['enabled']:
         print(f"Shoe repair: {plan['profile']}, axis={plan['axis']}, up={up_sign}, floor={plan['floor_up_mm']:.3f} mm", flush=True)
@@ -321,7 +535,7 @@ def reconstruct(source, unit='mm', fast=False, redo=False, sole_axis='off', up_s
             shoe_report = {**plan, 'enabled': False, 'reason': str(error), 'fallback_to_base': True}
         if not shoe_report['enabled']:
             print(f"WARNING: shoe repair skipped; original mesh retained: {shoe_report['reason']}", flush=True)
-    elif not no_shoe_repair:
+    elif not no_shoe_repair and human:
         print(f"WARNING: shoe repair skipped: {shoe_report['reason']}", flush=True)
     print(f'\n[appearance: {appearance}]', flush=True)
     appearance_axis = shoe_axis if shoe_axis != 'auto' else sole_axis if sole_axis != 'off' else 'auto'
@@ -329,7 +543,7 @@ def reconstruct(source, unit='mm', fast=False, redo=False, sole_axis='off', up_s
         # Final coordinates are always mm, even for --unit m input. Run after
         # color transfer and shoe closure; later stages must not reset RGB or winding.
         final, appearance_report = apply_appearance(final, mode=appearance, up_axis=appearance_axis,
-                                                    up_sign=up_sign, unit='mm')
+                                                    up_sign=up_sign, unit='mm',color_region='body' if human else 'all')
     except (ValueError, RuntimeError) as error:
         appearance_report = {'enabled': False, 'mode': appearance, 'reason': str(error),
                              'fallback_to_previous_mesh': True}
@@ -350,14 +564,15 @@ def reconstruct(source, unit='mm', fast=False, redo=False, sole_axis='off', up_s
     appearance_report['exported_centered_signed_flux_m3'] = float(np.einsum(
         'ij,ij->i', centered[triangles[:, 0]],
         np.cross(centered[triangles[:, 1]], centered[triangles[:, 2]])).sum() / 6)
-    output = run_dir / f'{source.stem}_mesh.ply'
+    # Build privately before publishing final files: no rewrite of a displayed OBJ.
+    output = run_dir / 'intermediate' / f'{source.stem}_pre_hands.ply'
     if not o3d.io.write_triangle_mesh(str(output), final, write_vertex_normals=True, write_vertex_colors=True):
         raise OSError(f'Failed to write {output}')
     obj = output.with_suffix('.obj')
     convert_ply_to_obj(output, obj, vertex_colors=True)
     if file_hash(source) != signature['source_sha256']:
         raise RuntimeError('Source changed during reconstruction; result is not cached. Rerun when copying has finished.')
-    report = {'fingerprint': signature, 'source': str(source), 'auto_settings': settings,
+    report = {'fingerprint': signature, 'source': str(source), 'auto_settings': settings,'subject':subject,'object_processing':object_trim,
               'unit': 'mm', 'raw_queries': len(sample), 'before_raw_distance': before,
               'candidate_raw_distance': after, 'refinement_accepted': accepted,
               'candidate_movement': movement, 'base_observation_support': support,
@@ -374,6 +589,15 @@ def reconstruct(source, unit='mm', fast=False, redo=False, sole_axis='off', up_s
                             for key, path in [('ply', output), ('obj', obj), ('base', base_path)]}}
     report_path = run_dir / 'report.json'
     report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
+    # Store positions from the exact final exported PLY, after shoe/appearance
+    # processing. Segmentation options deliberately do not invalidate mesh cache.
+    report=add_body_part_positions(report_path,segmentation,seg_python,seg_axis,up_sign)
+    report=add_hand_refinement(report_path,hand_refine and segmentation and human,unit)
+    report=add_surface_quality(report_path,surface_refine and segmentation and human,unit)
+    report=finalize_model_files(report_path)
+    output=run_dir/report['artifacts']['ply']['name'];obj=run_dir/report['artifacts']['obj']['name']
+    report['total_seconds']=round(time.perf_counter()-started,3)
+    report_path.write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf-8')
     print(f"\nDONE in {report['total_seconds']:.1f} s\nPLY: {output}\nOBJ: {obj}\nReport: {report_path}", flush=True)
     return report_path
 
@@ -384,6 +608,8 @@ def main(argv=None):
     parser.add_argument('--all', action='store_true', help='Process all PLY inputs, reusing unchanged completed results.')
     parser.add_argument('--redo', action='store_true', help='Rebuild into a new directory even if a cached result exists.')
     parser.add_argument('--fast', action='store_true', help='Coarser quick preview; lower fine-detail resolution.')
+    parser.add_argument('--kind',choices=['auto','human','object'],default='auto',help='Auto: require coherent human parts, otherwise generic object processing.')
+    parser.add_argument('--no-surface-refine',action='store_true',help='Disable quality-gated mild face/body surface polishing; hand geometry is always protected in this stage.')
     parser.add_argument('--unit', choices=['mm', 'm'], default='mm', help='Input coordinate unit; default mm. Outputs always mm.')
     parser.add_argument('--sole-axis', choices=['auto', 'x', 'y', 'z', 'off'], default='off')
     parser.add_argument('--refine', action='store_true', help='Opt in to additional bounded bilateral filtering; default off.')
@@ -396,6 +622,13 @@ def main(argv=None):
     appearance_modes.add_argument('--normals-only', dest='appearance', action='store_const', const='normals',
                                   help='Correct final normal direction, retaining original vertex RGB.')
     parser.set_defaults(appearance='full')
+    parser.add_argument('--no-segmentation',action='store_true',help='Skip body_parts.json and hand refinement.')
+    hand_modes=parser.add_mutually_exclusive_group()
+    hand_modes.add_argument('--hand-refine',dest='hand_refine',action='store_true',help='Opt in to the withdrawn experimental palm geometry processing.')
+    hand_modes.add_argument('--no-hand-refine',dest='hand_refine',action='store_false',help='Keep Sapiens positions only; no hand deformation (default).')
+    parser.set_defaults(hand_refine=False)
+    parser.add_argument('--seg-python',help='Python executable with GPU PyTorch for Sapiens; defaults to HUMAN_SEG_PYTHON or local test0.')
+    parser.add_argument('--seg-axis',choices=['auto','x','y','z'],default='auto',help='Segmentation vertical axis; uses --up-sign.')
     args = parser.parse_args(argv)
     if args.input and args.all:
         parser.error('Use an input OR --all, not both.')
@@ -407,7 +640,8 @@ def main(argv=None):
     for source in inputs:
         try:
             reconstruct(source, args.unit, args.fast, args.redo, args.sole_axis, args.up_sign,
-                        args.refine, args.no_shoe_repair, args.shoe_axis, args.appearance)
+                        args.refine, args.no_shoe_repair, args.shoe_axis, args.appearance,
+                        not args.no_segmentation,args.seg_python,args.seg_axis,args.hand_refine,args.kind,not args.no_surface_refine)
         except (OSError, ValueError, RuntimeError, subprocess.CalledProcessError) as error:
             print(f'FAILED {source.name}: {error}', file=sys.stderr, flush=True)
             failures.append(source.name)

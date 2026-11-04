@@ -1,0 +1,10 @@
+{
+  "repository": "https://github.com/facebookresearch/sapiens",
+  "commit": "2cb07227a740cf09896309ea3a3b8fa44429865c",
+  "files": {
+    "lite/demo/vis_seg.py": "376a8d5eacf38285de4cfaec7538373842b578c0a813ac3f1493de82228d0698",
+    "lite/demo/adhoc_image_dataset.py": "ef10cb343d8a34b1863b8d887fdc4d94a5504d4b3804913010c7f205a529b8a9",
+    "lite/demo/classes_and_palettes.py": "3f3b910f56b3eb04eb1e1e94c77bfa02f7c7bc50fac6942f7ec538a9ff3f450e",
+    "LICENSE": "327a71fc6dde573ec05f9b931c63da6561c9622258bb8636fe5d353ec92c1dd8"
+  }
+}

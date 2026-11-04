@@ -332,5 +332,12 @@
       "name": "intermediate\\export_00000_mesh.ply",
       "sha256": "c042b736ff3f96e2c74d0a411440a2c3ef30a0f94cb3adfc31151c7809055e3a"
     }
+  },
+  "segmentation": {
+    "status": "complete",
+    "path": "D:\\dachuang\\chongjian(1)\\chongjian\\outputs\\models\\export_00000\\20261030_193839_056084\\body_parts.json",
+    "sha256": "422649272f838c806b174e37087366b431aa865f43ceacaa2f6c4a006836cf50",
+    "reused": false,
+    "elapsed_seconds": 35.371
   }
 }

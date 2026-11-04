@@ -1,0 +1,9 @@
+# Python runtime caches
+__pycache__/
+*.py[cod]
+
+# Generated models, reports and the one-time cleanup recovery archive
+outputs/
+
+# Downloaded segmentation weights
+tools/sapiens/checkpoints/

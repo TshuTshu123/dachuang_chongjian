@@ -1,0 +1,7 @@
+{
+  "repository": "facebook/sapiens-seg-0.3b-torchscript",
+  "revision": "18e07d7474a00d30728f22de33325741ce27046f",
+  "file": "sapiens_0.3b_goliath_best_goliath_mIoU_7673_epoch_194_torchscript.pt2",
+  "size": 1358871599,
+  "sha256": "735a9a8d63fe8f3f6a4ca3d787de07e69b1f9708ad550e09bb33c9854b7eafbc"
+}
