@@ -22,21 +22,23 @@ def metrics(mesh,raw,samples,edges,mask,face):
             'mesh_to_raw_p95_mm':float(np.quantile(nearest,.95)),'normal_angle_p90_deg':rough(mask),'face_angle_p90_deg':rough(face)}
 
 
-def prepare_quality(mesh,raw,parts):
+def prepare_quality(mesh,raw,parts,target='surface'):
     v=np.asarray(mesh.vertices);f=np.asarray(mesh.triangles);tree=cKDTree(v);rng=np.random.default_rng(7)
-    weights,face,edges=regions(mesh,parts);mask=weights>.1
+    weights,face,edges=regions(mesh,parts,target);mask=weights>.1
     supported=tree.query(raw,workers=4)[1];selected=raw[mask[supported]]
+    if not len(selected):
+        raise ValueError('No supported vertices in the selected region.')
     samples=selected[rng.choice(len(selected),min(5000,len(selected)),replace=False)]
     before=metrics(mesh,raw,samples,edges,mask,face)
     blocks=intersection_blocks(mesh,weights>0)
     base_pairs=intersection_pairs(mesh,blocks)
-    return dict(weights=weights,face=face,edges=edges,mask=mask,samples=samples,before=before,blocks=blocks,base_pairs=base_pairs)
+    return dict(weights=weights,face=face,edges=edges,mask=mask,samples=samples,before=before,blocks=blocks,base_pairs=base_pairs,target=target)
 
 
 def assess_surface(mesh,raw,parts,method,context):
     v=np.asarray(mesh.vertices);f=np.asarray(mesh.triangles)
     weights,face,edges,mask,samples,before,blocks,base_pairs=(context[k] for k in ('weights','face','edges','mask','samples','before','blocks','base_pairs'))
-    candidate,detail,_,_,_=propose(mesh,raw,parts,method)
+    candidate,detail,_,_,_=propose(mesh,raw,parts,method,context.get('target','surface'))
     after=metrics(candidate,raw,samples,edges,mask,face);groups=intersection_groups(candidate,blocks);extra=set().union(*groups.values())-base_pairs
     graph=None;total_reduced=np.zeros(len(v),bool)
     for backoff in range(6):
@@ -53,7 +55,8 @@ def assess_surface(mesh,raw,parts,method,context):
         extra=set().union(*groups.values())-base_pairs
     if total_reduced.any():
         after=metrics(candidate,raw,samples,edges,mask,face);detail['locally_reduced_vertices']=int(total_reduced.sum())
-    improvement=1-after['normal_angle_p90_deg']/before['normal_angle_p90_deg']
+    baseline=before['normal_angle_p90_deg']
+    improvement=1-after['normal_angle_p90_deg']/baseline if baseline and after['normal_angle_p90_deg'] is not None else 0.
     face_ok=before['face_angle_p90_deg'] is None or after['face_angle_p90_deg']<=before['face_angle_p90_deg']+1e-6
     accepted=(not extra and face_ok and improvement>.02 and after['raw_to_mesh_p95_mm']<=before['raw_to_mesh_p95_mm']+.15 and after['raw_to_mesh_median_mm']<=before['raw_to_mesh_median_mm']+.05)
     cv=np.asarray(candidate.vertices);p=cv[f];base=v[f];flipped=int(np.sum(np.sum(np.cross(p[:,1]-p[:,0],p[:,2]-p[:,0])*np.cross(base[:,1]-base[:,0],base[:,2]-base[:,0]),axis=1)<=0))

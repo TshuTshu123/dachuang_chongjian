@@ -43,13 +43,31 @@ def intersection_pairs(mesh,blocks):
     return set().union(*intersection_groups(mesh,blocks).values())
 
 
-def regions(mesh,parts):
+def regions(mesh,parts,target='surface'):
     v=np.asarray(mesh.vertices);f=np.asarray(mesh.triangles);n=len(v)
     edges=np.unique(np.sort(np.concatenate([f[:,[0,1]],f[:,[1,2]],f[:,[2,0]]]),axis=1),axis=0)
     graph=coo_matrix((np.ones(len(edges)*2),(np.r_[edges[:,0],edges[:,1]],np.r_[edges[:,1],edges[:,0]])),shape=(n,n)).tocsr()
     degree=np.maximum(np.asarray(graph.sum(1)).ravel(),1)
     weights=np.zeros(n);face=np.zeros(n,bool);protected=np.zeros(n,bool)
-    if parts:
+    if target in ('face','hands'):
+        names=('face_neck',) if target=='face' else ('left_hand','right_hand')
+        for name in names:
+            ids=np.asarray(parts.get(name,{}).get('vertex_indices',[]),dtype=np.int64)
+            if target=='hands':
+                arm=parts.get(name.replace('hand','lower_arm'),{}).get('vertex_indices',[])
+                if min(len(ids),len(arm))<30:
+                    continue
+                distance=cKDTree(v[arm]).query(v[ids],workers=4)[0]
+                # The distal zone is a conservative proxy, not a finger label.
+                ids=ids[distance<=np.quantile(distance,.75)]
+            weights[ids]=1.
+        protected=weights==0
+        if target=='face':
+            face[parts.get('face_neck',{}).get('vertex_indices',[])]=True
+            for name in ('upper_lip','lower_lip','upper_teeth','lower_teeth','tongue'):
+                protected[parts.get(name,{}).get('vertex_indices',[])]=True
+            weights[protected]=0.
+    elif parts:
         for name,part in parts.items():
             ids=part['vertex_indices']
             if name in ('face_neck','torso','upper_clothing','lower_clothing','left_upper_arm','right_upper_arm','left_lower_arm','right_lower_arm','left_upper_leg','right_upper_leg','left_lower_leg','right_lower_leg'):
@@ -60,14 +78,17 @@ def regions(mesh,parts):
     mesh.compute_vertex_normals();normal=np.asarray(mesh.vertex_normals)
     spread=1-np.linalg.norm(graph@normal/degree[:,None],axis=1)
     weights*=np.exp(-np.maximum(spread,0)/.08);weights[spread>.18]=0
+    if target!='surface':
+        # Hold the semantic seam fixed, including a ring on its inside.
+        weights[(graph@protected.astype(float))>0]=0
     for _ in range(3):weights=np.minimum(weights,graph@weights/degree)
     weights[protected]=0
     return weights,face,edges
 
 
-def propose(mesh,raw,parts,method):
+def propose(mesh,raw,parts,method,target='surface'):
     original=np.asarray(mesh.vertices).copy();f=np.asarray(mesh.triangles)
-    weights,face,edges=regions(mesh,parts)
+    weights,face,edges=regions(mesh,parts,target)
     if method in ('bilateral_light','bilateral_medium'):
         result=copy.deepcopy(mesh);result.scale(.001,center=np.zeros(3))
         strength=method=='bilateral_medium'
@@ -103,6 +124,37 @@ def propose(mesh,raw,parts,method):
         shift=np.clip(height*.45,-.8,.8)*weights*allowed
         xyz=original+shift[:,None]*guide;result=copy.deepcopy(mesh);result.vertices=o3d.utility.Vector3dVector(xyz)
         detail={'radius_mm':5,'neighbors':24,'max_move_mm':.8}
+    elif method=='regional_mls':
+        if target not in ('face','hands'):
+            raise ValueError('Regional MLS needs a face or hands target')
+        names=('face_neck',) if target=='face' else ('left_hand','right_hand')
+        cap=.5 if target=='face' else .35
+        guide=np.asarray(mesh.vertex_normals)
+        smoothing=np.asarray(mesh.filter_smooth_taubin(number_of_iterations=4).vertices).copy()
+        raw_vertex=cKDTree(original).query(raw,workers=4)[1]
+        displacement=np.zeros_like(original)
+        for name in names:
+            region=np.zeros(len(original),bool)
+            region[parts.get(name,{}).get('vertex_indices',[])]=True
+            observed=raw[region[raw_vertex]]
+            ids=np.flatnonzero(region&(weights>0))
+            if len(observed)<24 or not len(ids):
+                continue
+            distance,nearest=cKDTree(observed).query(original[ids],workers=4)
+            normal,offset,valid,flat,_=fit_local_planes(observed*.001,24,.005,4)
+            local_normal=normal[nearest]
+            alignment=np.einsum('ij,ij->i',guide[ids],local_normal)
+            eligible=(distance<=3)&valid[nearest]&flat[nearest]&(np.abs(alignment)>.8)
+            anchor=observed[nearest]+(1000*offset[nearest])[:,None]*local_normal
+            height=np.einsum('ij,ij->i',anchor-original[ids],local_normal)*np.sign(alignment)
+            smooth=np.einsum('ij,ij->i',smoothing[ids]-original[ids],guide[ids])
+            # Blend the observation plane with the smooth surface, along normals only.
+            step=np.clip(.75*smooth+.25*height,-cap,cap)*weights[ids]*eligible
+            displacement[ids]=step[:,None]*guide[ids]
+        result=copy.deepcopy(mesh)
+        result.vertices=o3d.utility.Vector3dVector(original+displacement)
+        detail={'radius_mm':5,'neighbors':24,'max_move_mm':cap,'target':target,
+                'plane_weight':.25,'taubin_iterations':4,'normal_only':True}
     else:raise ValueError(method)
     xyz=np.asarray(result.vertices).copy()
     xyz[(weights==0)|~np.isfinite(xyz).all(1)]=original[(weights==0)|~np.isfinite(xyz).all(1)]

@@ -11,8 +11,16 @@
   --shoe-axis x/y/z：手动指定鞋底竖直轴，默认 auto 最长轴，--up-sign -1 为负向朝上。
   少量非流形边导致朝向失败时自动限量清理；失败原因写入 failure.json。
   默认自动修正法线并修补孤立黑点；--normals-only 只修法线，--no-appearance 全部关闭。
-  默认仅附加 Meta/Sapiens 的 body_parts.json，不修改手部；--no-segmentation 跳过识别。
-  --hand-refine：显式试用已撤回的掌面限厚/平滑；--no-hand-refine 保持关闭（默认）。
+  data_raw/编号 下有配套 RAW 时优先用多视角补色；--no-raw-color 使用单 PLY 的黑点修补。
+  配套照片和脸颈标签通过检查时额外生成 textured/face_uv.obj；--no-face-uv 跳过。
+  默认在 Meta/Sapiens 识别后自动检查手部密度、厚度与观测贴合，收益不足则保留原形。
+  掌部以腕部/椭圆截面参考整体收紧，指尖和手腕处渐变；不需要单独选择掌部参数。
+  默认比较双手 MANO 候选；明显过厚且候选改善时成对替换，腕口以真实边界/切向连接掌侧。
+  MANO 采用后继续融合掌部观测并以原扫描腕部校正衔接；身体表面增加局部二次曲面去噪。
+  --no-hand-refine：关闭自动手部处理与 MANO；--no-segmentation 同时跳过识别和手部处理。
+  --hand-refine：兼容旧的掌面实验；日常无需选择，--no-hand-refine 关闭自动手部处理。
+  --hand-skeleton：试用原有稳定中心线限定的手指表面贴合；默认关闭。
+  --hand-density：额外试验低密度虚接过滤和观测厚度约束，可能留下开口；默认关闭。
   --seg-python 路径：GPU Python（默认本机 test0）；--seg-axis x/y/z：指定识别竖直轴。
 输出：outputs/models/输入名/时间/，中间结果在 intermediate，旧结果不覆盖。
 无需运行其它脚本；自动参数不等于保证恢复扫描缺失的真实细节。
@@ -46,12 +54,18 @@ from body_parts import ensure_body_parts, DEFAULT_GPU_PYTHON
 from palm_pipeline import refine_hands
 from scene_policy import classify_parts, generic_observation_trim, repair_generic_topology
 from surface_evaluation import refine_surface
+from tools.raw_capture import raw_color_input, apply_raw_colors
+from tools.face_uv import export_face_uv
+from skeleton_hand import refine_skeleton_hands
+from mano_pipeline import apply_mano
+from scan_polish_pipeline import apply_scan_polish
 
 ROOT = Path(__file__).resolve().parent
 DATA = ROOT / 'data'
+RAW_DATA = ROOT / 'data_raw'
 OUTPUTS = ROOT / 'outputs' / 'models'
 WORKERS = min(8, os.cpu_count() or 1)
-VERSION = 14
+VERSION = 25
 
 
 def select_inputs(value=None, all_files=False, data_dir=DATA):
@@ -153,10 +167,12 @@ def fingerprint(source, unit, fast):
     code = {name: file_hash(ROOT / name) for name in
             ('run.py', 'reconstruct_human.py', 'surface_detail.py', 'mesh_refine.py', 'ply_to_obj.py', 'sole_repair.py', 'mesh_appearance.py',
              'palm_pipeline.py', 'hand_pipeline.py', 'finger_restore.py', 'scene_policy.py', 'surface_quality.py', 'surface_evaluation.py', 'body_parts.py', 'tools/sapiens/infer.py', 'tools/sapiens/render_views.py',
-             'tools/sapiens/checkpoint_manifest.json', 'tools/sapiens/vendor/classes_and_palettes.py')}
+             'tools/sapiens/checkpoint_manifest.json', 'tools/sapiens/vendor/classes_and_palettes.py',
+             'tools/raw_capture.py', 'tools/face_uv.py', 'hand_centerlines.py', 'skeleton_hand.py', 'hand_density_constraints.py', 'palm_volume.py', 'mano_pipeline.py', 'tools/mano_fit.py', 'tools/mano_join.py', 'finger_envelope.py', 'hand_thickness_policy.py', 'tools/wrist_cut_trial.py',
+             'scan_polish.py', 'scan_polish_pipeline.py', 'tools/mano_surface_trial.py', 'tools/wrist_observation_trial.py', 'tools/torso_surface_trial.py', 'tools/surface_trials.py')}
     return {'version': VERSION, 'source_sha256': file_hash(source), 'unit': unit,
             'fast': fast, 'code_sha256': code, 'open3d_version': o3d.__version__,
-            'numpy_version': np.__version__}
+            'numpy_version': np.__version__, 'mano_assets': {name: file_hash(ROOT/'tools/mano'/name) if (ROOT/'tools/mano'/name).is_file() else None for name in ('MANO_LEFT.pkl','MANO_RIGHT.pkl')}}
 
 
 def cached_result(folder, signature):
@@ -222,7 +238,9 @@ def add_geometry_postprocess(report_path, enabled=True, raw_unit='mm', stage='ha
     """Apply once; stage PLY/OBJ/positions together and roll back on export errors."""
     report_path = Path(report_path)
     report = json.loads(report_path.read_text(encoding='utf-8'))
-    field='surface_quality' if stage=='surface' else 'hand_refinement'
+    field={'surface': 'surface_quality', 'skeleton': 'skeleton_hand_refinement',
+           'skeleton_density': 'hand_density_refinement', 'hands_auto': 'hand_processing',
+           'palm_volume': 'palm_volume_trial', 'palm_focus': 'palm_focus_trial', 'palm_reference': 'palm_reference_trial', 'palm_whole': 'palm_whole_trial', 'finger_tube': 'finger_tube_trial', 'hands': 'hand_refinement'}[stage]
     if not enabled:
         report[field] = {'status': 'disabled', 'applied': False}
     elif report.get(field, {}).get('status') == 'complete':
@@ -240,6 +258,7 @@ def add_geometry_postprocess(report_path, enabled=True, raw_unit='mm', stage='ha
         try:
             print(f'\n[{stage}: bounded geometry candidate and quality checks]', flush=True)
             original_hash = file_hash(mesh_path)
+            centerlines = None
             if stage=='surface':
                 mesh=o3d.io.read_triangle_mesh(str(mesh_path))
                 raw=np.asarray(o3d.io.read_point_cloud(report['source']).points).copy()
@@ -247,6 +266,28 @@ def add_geometry_postprocess(report_path, enabled=True, raw_unit='mm', stage='ha
                 data=json.loads(positions.read_text(encoding='utf-8'))
                 if data['mesh']['sha256']!=original_hash:raise ValueError('Positions do not match the mesh')
                 candidate,result=refine_surface(mesh,raw,data['parts'])
+            elif stage in ('palm_volume', 'palm_focus', 'palm_reference', 'palm_whole', 'finger_tube'):
+                from palm_volume import palm_candidate
+                centerlines = json.loads((report_path.parent/'hand_centerlines.json').read_text(encoding='utf-8'))
+                if original_hash not in (centerlines.get('source_mesh_sha256'), centerlines.get('output_mesh_sha256')):
+                    raise ValueError('Palm trial centerlines do not match input mesh.')
+                data = json.loads(positions.read_text(encoding='utf-8'))
+                if data['mesh']['sha256'] != original_hash:
+                    raise ValueError('Palm trial labels do not match input mesh.')
+                mesh = o3d.io.read_triangle_mesh(str(mesh_path))
+                raw = np.asarray(o3d.io.read_point_cloud(report['source']).points).copy()
+                raw = raw[np.isfinite(raw).all(1)]*(1000 if raw_unit == 'm' else 1)
+                if stage == 'finger_tube':
+                    from finger_envelope import constrain_fingers
+                    candidate, result = constrain_fingers(mesh, raw, data, centerlines['parts'])
+                else:
+                    candidate, result = palm_candidate(mesh, raw, data, centerlines['parts'],
+                        palm_focus=(stage == 'palm_focus'), reference_first=(stage == 'palm_reference'), whole_palm=(stage == 'palm_whole'))
+            elif stage in ('skeleton', 'skeleton_density', 'hands_auto'):
+                raw = np.asarray(o3d.io.read_point_cloud(report['source']).points).copy()
+                raw = raw[np.isfinite(raw).all(1)]*(1000 if raw_unit == 'm' else 1)
+                candidate, result, centerlines = refine_skeleton_hands(mesh_path, positions, raw,
+                    density_constraints=(stage != 'skeleton'), conservative=(stage == 'hands_auto'))
             else:candidate, result = refine_hands(mesh_path, positions)
             if result['applied']:
                 data = json.loads(positions.read_text(encoding='utf-8'))
@@ -293,6 +334,16 @@ def add_geometry_postprocess(report_path, enabled=True, raw_unit='mm', stage='ha
                 faces = np.asarray(candidate.triangles)
                 report['appearance']['exported_centered_signed_flux_m3'] = float(np.einsum(
                     'ij,ij->i', xyz[faces[:, 0]], np.cross(xyz[faces[:, 1]], xyz[faces[:, 2]])).sum()/6)
+                if result.get('topology_changed'):
+                    topology_mesh = copy.deepcopy(candidate)
+                    topology_mesh.scale(.001, center=np.zeros(3))
+                    report['final_topology'] = geometry_report(topology_mesh, check_intersections=False)
+                    report['final_topology']['updated_after'] = field
+            if centerlines is not None:
+                centerlines['output_mesh_sha256'] = report['artifacts']['ply']['sha256']
+                sidecar = report_path.parent/'hand_centerlines.json'
+                sidecar.write_text(json.dumps(centerlines, ensure_ascii=False, indent=2), encoding='utf-8')
+                result['centerlines'] = {'name': sidecar.name, 'sha256': file_hash(sidecar)}
             result['elapsed_seconds'] = round(time.perf_counter()-started, 3)
             report[field] = result
             print(f"Hands: {'applied' if result['applied'] else 'original retained'}; "
@@ -311,6 +362,15 @@ def add_hand_refinement(report_path,enabled=True,raw_unit='mm'):
 
 def add_surface_quality(report_path,enabled=True,raw_unit='mm'):
     return add_geometry_postprocess(report_path,enabled,raw_unit,'surface')
+
+
+def add_skeleton_hand_refinement(report_path, enabled=False, raw_unit='mm', *, density_constraints=False):
+    return add_geometry_postprocess(report_path, enabled, raw_unit, 'skeleton_density' if density_constraints else 'skeleton')
+
+
+def add_unified_hand_refinement(report_path, enabled=True, raw_unit='mm'):
+    """Default for every new human scan; one evidence/quality policy, no scan IDs."""
+    return add_geometry_postprocess(report_path, enabled, raw_unit, 'hands_auto')
 
 
 def finalize_model_files(report_path):
@@ -406,18 +466,30 @@ def repair_small_topology_defects(mesh, base_report):
                        'note': 'May leave small openings. Dominant winding retained; no hole filling or self-intersection certification.'}
 
 
-def reconstruct(source, unit='mm', fast=False, redo=False, sole_axis='off', up_sign=1, refine=False, no_shoe_repair=False, shoe_axis='auto', appearance='full', segmentation=True, seg_python=None, seg_axis='auto', hand_refine=False, kind='auto', surface_refine=True):
+def reconstruct(source, unit='mm', fast=False, redo=False, sole_axis='off', up_sign=1, refine=False, no_shoe_repair=False, shoe_axis='auto', appearance='full', segmentation=True, seg_python=None, seg_axis='auto', hand_refine=False, kind='auto', surface_refine=True, raw_color=True, face_uv=True, hand_skeleton=False, hand_density=False, hand_auto=True):
     source = Path(source).resolve()
     started = time.perf_counter()
+    hand_auto = bool(hand_auto and not any((hand_refine, hand_skeleton, hand_density)))
     signature = fingerprint(source, unit, fast)
     signature.update(sole_axis=sole_axis, up_sign=up_sign, refine=refine, no_shoe_repair=no_shoe_repair,
-                     shoe_axis=shoe_axis, appearance=appearance, hand_refine=bool(hand_refine and segmentation),kind=kind,surface_refine=bool(surface_refine and segmentation))
+                     shoe_axis=shoe_axis, appearance=appearance, hand_refine=bool(hand_refine and segmentation),kind=kind,surface_refine=bool(surface_refine and segmentation),hand_skeleton=bool(hand_skeleton and segmentation),hand_density=bool(hand_density and segmentation),hand_auto=bool(hand_auto and segmentation))
+    if sum(map(bool, (hand_skeleton, hand_refine, hand_density))) > 1:
+        raise ValueError('Choose one hand processing mode.')
+    raw_input = {'status': 'skipped', 'reason': 'RAW color disabled by appearance options.'}
+    if appearance == 'full' and raw_color:
+        try:
+            raw_input = raw_color_input(RAW_DATA, source.stem)
+        except (OSError, ValueError) as error:
+            raw_input = {'status': 'skipped', 'reason': str(error)}
+    signature['raw_color_input'] = raw_input
     if kind=='auto':
         signature['subject_detection']={'enabled':segmentation,'python':str(Path(seg_python or DEFAULT_GPU_PYTHON).resolve()),'axis':seg_axis}
     if hand_refine and segmentation:
         signature['hand_segmentation'] = {'python': str(Path(seg_python or DEFAULT_GPU_PYTHON).resolve()), 'axis': seg_axis}
     if surface_refine and segmentation:
         signature['surface_segmentation']={'python':str(Path(seg_python or DEFAULT_GPU_PYTHON).resolve()),'axis':seg_axis}
+    if (hand_auto or hand_skeleton or hand_density) and segmentation:
+        signature['skeleton_segmentation']={'python':str(Path(seg_python or DEFAULT_GPU_PYTHON).resolve()),'axis':seg_axis}
     if not no_shoe_repair and sole_axis != 'off':
         raise ValueError('Shoe closure cannot be combined with old sole trimming; use --sole-axis off or --no-shoe-repair.')
     folder = OUTPUTS / source.stem
@@ -428,9 +500,30 @@ def reconstruct(source, unit='mm', fast=False, redo=False, sole_axis='off', up_s
         add_body_part_positions(path,segmentation,seg_python,seg_axis,up_sign)
         add_hand_refinement(path,hand_refine and segmentation and report.get('subject',{}).get('kind')=='human',unit)
         add_surface_quality(path,surface_refine and segmentation and report.get('subject',{}).get('kind')=='human',unit)
-        finalize_model_files(path)
+        add_skeleton_hand_refinement(path, hand_skeleton and segmentation and report.get('subject',{}).get('kind')=='human', unit)
+        add_skeleton_hand_refinement(path, hand_density and segmentation and report.get('subject',{}).get('kind')=='human', unit, density_constraints=True)
+        add_unified_hand_refinement(path, hand_auto and segmentation and report.get('subject',{}).get('kind')=='human', unit)
+        report = apply_mano(path, hand_auto and segmentation)
+        report = apply_scan_polish(path, hand_auto and segmentation, surface_refine and segmentation, unit, seg_axis, up_sign)
+        report = finalize_model_files(path)
+        report['face_uv'] = export_face_uv(path.parent, report, face_uv and not fast)
+        path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
+        if report['face_uv']['status'] == 'complete':
+            print(f"Textured OBJ: {path.parent / report['face_uv']['obj']}", flush=True)
         return path
     cloud = o3d.io.read_point_cloud(str(source))
+    raw_color_report = dict(raw_input)
+    if raw_input['status'] == 'ready':
+        try:
+            raw_color_report = apply_raw_colors(cloud, unit, raw_input)
+        except (OSError, ValueError, RuntimeError, KeyError, TypeError, IndexError) as error:
+            raw_color_report = {'status': 'skipped', 'source': raw_input['folder'],
+                                'frame': raw_input['frame'], 'reason': str(error)}
+    if raw_color_report['status'] == 'used':
+        print(f"RAW color: repaired {raw_color_report['repaired_points']:,} source points "
+              f"from frame {raw_color_report['frame']}.", flush=True)
+    elif appearance == 'full' and raw_color:
+        print(f"RAW color skipped: {raw_color_report['reason']}", flush=True)
     cloud.remove_non_finite_points()
     cloud.remove_duplicated_points()
     if unit == 'm':
@@ -537,15 +630,18 @@ def reconstruct(source, unit='mm', fast=False, redo=False, sole_axis='off', up_s
             print(f"WARNING: shoe repair skipped; original mesh retained: {shoe_report['reason']}", flush=True)
     elif not no_shoe_repair and human:
         print(f"WARNING: shoe repair skipped: {shoe_report['reason']}", flush=True)
-    print(f'\n[appearance: {appearance}]', flush=True)
+    # Calibrated RAW can distinguish missing colors from observed dark material.
+    # With RAW colors, keep those observations instead of guessing from brightness.
+    appearance_mode = 'normals' if raw_color_report['status'] == 'used' else appearance
+    print(f'\n[appearance: {appearance_mode}]', flush=True)
     appearance_axis = shoe_axis if shoe_axis != 'auto' else sole_axis if sole_axis != 'off' else 'auto'
     try:
         # Final coordinates are always mm, even for --unit m input. Run after
         # color transfer and shoe closure; later stages must not reset RGB or winding.
-        final, appearance_report = apply_appearance(final, mode=appearance, up_axis=appearance_axis,
+        final, appearance_report = apply_appearance(final, mode=appearance_mode, up_axis=appearance_axis,
                                                     up_sign=up_sign, unit='mm',color_region='body' if human else 'all')
     except (ValueError, RuntimeError) as error:
-        appearance_report = {'enabled': False, 'mode': appearance, 'reason': str(error),
+        appearance_report = {'enabled': False, 'mode': appearance_mode, 'reason': str(error),
                              'fallback_to_previous_mesh': True}
         print(f'WARNING: appearance processing skipped; previous mesh retained: {error}', flush=True)
     if appearance_report['enabled']:
@@ -578,7 +674,7 @@ def reconstruct(source, unit='mm', fast=False, redo=False, sole_axis='off', up_s
               'candidate_movement': movement, 'base_observation_support': support,
               'final_topology': topology, 'base_report': base_report, 'shoe_repair': shoe_report,
               'base_topology_repair': topology_repair,
-              'appearance': appearance_report,
+              'appearance': appearance_report, 'raw_color': raw_color_report,
               'notes': ['Validated scan baseline; no guarantee of best/true face reconstruction.',
                         'Extra support-weighted refinement is opt-in, not enabled by default.',
                         'Raw distances are observation fit, not ground-truth accuracy.',
@@ -594,11 +690,19 @@ def reconstruct(source, unit='mm', fast=False, redo=False, sole_axis='off', up_s
     report=add_body_part_positions(report_path,segmentation,seg_python,seg_axis,up_sign)
     report=add_hand_refinement(report_path,hand_refine and segmentation and human,unit)
     report=add_surface_quality(report_path,surface_refine and segmentation and human,unit)
+    report=add_skeleton_hand_refinement(report_path, hand_skeleton and segmentation and human, unit)
+    report=add_skeleton_hand_refinement(report_path, hand_density and segmentation and human, unit, density_constraints=True)
+    report=add_unified_hand_refinement(report_path, hand_auto and segmentation and human, unit)
+    report=apply_mano(report_path, hand_auto and segmentation)
+    report=apply_scan_polish(report_path, hand_auto and segmentation, surface_refine and segmentation, unit, seg_axis, up_sign)
     report=finalize_model_files(report_path)
+    report['face_uv'] = export_face_uv(run_dir, report, face_uv and not fast)
     output=run_dir/report['artifacts']['ply']['name'];obj=run_dir/report['artifacts']['obj']['name']
     report['total_seconds']=round(time.perf_counter()-started,3)
     report_path.write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf-8')
     print(f"\nDONE in {report['total_seconds']:.1f} s\nPLY: {output}\nOBJ: {obj}\nReport: {report_path}", flush=True)
+    if report['face_uv']['status'] == 'complete':
+        print(f"Textured OBJ: {run_dir / report['face_uv']['obj']}", flush=True)
     return report_path
 
 
@@ -609,7 +713,7 @@ def main(argv=None):
     parser.add_argument('--redo', action='store_true', help='Rebuild into a new directory even if a cached result exists.')
     parser.add_argument('--fast', action='store_true', help='Coarser quick preview; lower fine-detail resolution.')
     parser.add_argument('--kind',choices=['auto','human','object'],default='auto',help='Auto: require coherent human parts, otherwise generic object processing.')
-    parser.add_argument('--no-surface-refine',action='store_true',help='Disable quality-gated mild face/body surface polishing; hand geometry is always protected in this stage.')
+    parser.add_argument('--no-surface-refine',action='store_true',help='Disable quality-gated face/body polishing and torso quadratic denoising; hand processing has its own switch.')
     parser.add_argument('--unit', choices=['mm', 'm'], default='mm', help='Input coordinate unit; default mm. Outputs always mm.')
     parser.add_argument('--sole-axis', choices=['auto', 'x', 'y', 'z', 'off'], default='off')
     parser.add_argument('--refine', action='store_true', help='Opt in to additional bounded bilateral filtering; default off.')
@@ -622,11 +726,15 @@ def main(argv=None):
     appearance_modes.add_argument('--normals-only', dest='appearance', action='store_const', const='normals',
                                   help='Correct final normal direction, retaining original vertex RGB.')
     parser.set_defaults(appearance='full')
+    parser.add_argument('--no-raw-color', action='store_true', help='Use only the merged PLY for color processing.')
+    parser.add_argument('--no-face-uv', action='store_true', help='Skip the optional textured OBJ export while retaining RAW vertex color repair.')
     parser.add_argument('--no-segmentation',action='store_true',help='Skip body_parts.json and hand refinement.')
     hand_modes=parser.add_mutually_exclusive_group()
     hand_modes.add_argument('--hand-refine',dest='hand_refine',action='store_true',help='Opt in to the withdrawn experimental palm geometry processing.')
-    hand_modes.add_argument('--no-hand-refine',dest='hand_refine',action='store_false',help='Keep Sapiens positions only; no hand deformation (default).')
-    parser.set_defaults(hand_refine=False)
+    hand_modes.add_argument('--no-hand-refine',dest='hand_auto',action='store_false',help='Disable the default automatic hand geometry checks and processing.')
+    hand_modes.add_argument('--hand-skeleton', action='store_true', help='Try centerline-guided finger surface fitting without changing face connections.')
+    hand_modes.add_argument('--hand-density', action='store_true', help='Try centerlines plus adaptive bridge rejection and observed thickness; may leave openings.')
+    parser.set_defaults(hand_refine=False, hand_auto=True)
     parser.add_argument('--seg-python',help='Python executable with GPU PyTorch for Sapiens; defaults to HUMAN_SEG_PYTHON or local test0.')
     parser.add_argument('--seg-axis',choices=['auto','x','y','z'],default='auto',help='Segmentation vertical axis; uses --up-sign.')
     args = parser.parse_args(argv)
@@ -641,7 +749,8 @@ def main(argv=None):
         try:
             reconstruct(source, args.unit, args.fast, args.redo, args.sole_axis, args.up_sign,
                         args.refine, args.no_shoe_repair, args.shoe_axis, args.appearance,
-                        not args.no_segmentation,args.seg_python,args.seg_axis,args.hand_refine,args.kind,not args.no_surface_refine)
+                        not args.no_segmentation,args.seg_python,args.seg_axis,args.hand_refine,args.kind,
+                        not args.no_surface_refine,raw_color=not args.no_raw_color,face_uv=not args.no_face_uv,hand_skeleton=args.hand_skeleton,hand_density=args.hand_density,hand_auto=args.hand_auto)
         except (OSError, ValueError, RuntimeError, subprocess.CalledProcessError) as error:
             print(f'FAILED {source.name}: {error}', file=sys.stderr, flush=True)
             failures.append(source.name)

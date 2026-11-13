@@ -5,5 +5,11 @@ __pycache__/
 # Generated models, reports and the one-time cleanup recovery archive
 outputs/
 
+# Local multi-camera raw captures
+data_raw/
+
 # Downloaded segmentation weights
 tools/sapiens/checkpoints/
+
+# Locally downloaded licensed MANO model assets
+tools/mano/*.pkl

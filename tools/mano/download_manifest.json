@@ -1,0 +1,20 @@
+{
+  "source": "Official MANO user-authorized download; signed URL intentionally not stored",
+  "archive_total_bytes": 175200815,
+  "method": "ZIP central directory and selected members using HTTP Range",
+  "additional_network_bytes": 50679,
+  "models": [
+    {
+      "name": "MANO_RIGHT.pkl",
+      "bytes": 3821356,
+      "sha256": "45d60aa3b27ef9107a7afd4e00808f307fd91111e1cfa35afd5c4a62de264767",
+      "zip_crc32": "8a432435"
+    },
+    {
+      "name": "MANO_LEFT.pkl",
+      "bytes": 3821391,
+      "sha256": "c4022f7083f2ca7c78b2b3d595abbab52debd32b09d372b16923a801f0ea6a30",
+      "zip_crc32": "56440d60"
+    }
+  ]
+}
