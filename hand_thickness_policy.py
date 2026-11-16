@@ -20,7 +20,6 @@ def choose_hands(report):
 
 
 def compare_pair(report, mesh, info, candidate_folder):
-    import json
     from pathlib import Path
     import numpy as np
     import open3d as o3d

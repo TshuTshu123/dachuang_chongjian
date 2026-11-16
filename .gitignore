@@ -13,3 +13,12 @@ tools/sapiens/checkpoints/
 
 # Locally downloaded licensed MANO model assets
 tools/mano/*.pkl
+
+# Local FLAME model downloads (keep credentials and large weights out of Git)
+tools/flame/*.zip
+tools/flame/*.part
+tools/flame/*.pkl
+tools/flame/*.npz
+tools/flame/*.bin
+tools/flame/zip_headers.json
+tools/flame/runtime/

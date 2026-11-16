@@ -105,7 +105,7 @@ def constrain_fingers(mesh, raw_mm, info, frames, target_mm=TARGET_MM):
         scene = scene_for(selected, hand)
         paths = [(np.asarray(b['world_path_mm'])-wrist) @ axes for b in branches]
         queries = [cKDTree(p[:, :2]).query(local[:, :2]) for p in paths]
-        distance = np.array([q[0] for q in queries]); owner = distance.argmin(0)
+        distance = np.array([q[0] for q in queries])
         raw_queries = [cKDTree(p[:, :2]).query(raw[:, :2]) for p in paths]
         raw_distance = np.array([q[0] for q in raw_queries]); raw_owner = raw_distance.argmin(0)
         coords = local.copy(); affected = np.zeros(len(local), bool)

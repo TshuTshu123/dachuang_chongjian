@@ -5,7 +5,6 @@
 import copy
 from collections import deque
 import numpy as np
-import open3d as o3d
 from scipy.sparse import coo_matrix
 from scipy.spatial import cKDTree
 

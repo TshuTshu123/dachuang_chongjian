@@ -17,6 +17,10 @@ import open3d as o3d
 import run
 from body_parts import file_hash
 from scan_polish_pipeline import apply_scan_polish, publish_step
+from scan_polish import QualityRejection, refine_torso
+from scipy.sparse import csr_matrix
+from contextlib import ExitStack
+from tools.torso_surface_trial import sections
 
 
 class PublishChecks(unittest.TestCase):
@@ -103,6 +107,82 @@ class PublishChecks(unittest.TestCase):
         self.assertEqual(report['mano_surface_refinement']['status'], 'disabled')
         self.assertEqual(report['torso_surface_refinement']['status'], 'skipped')
         self.assertEqual(file_hash(self.ply), self.report['artifacts']['ply']['sha256'])
+
+    def test_quality_rejection_is_cached_and_input_change_retries(self):
+        with patch('scan_polish_pipeline.refine_torso', side_effect=QualityRejection('Missing diagnostic contour')) as refine:
+            first = apply_scan_polish(self.path, False, True)
+            apply_scan_polish(self.path, False, True)
+            self.assertEqual(refine.call_count, 1)
+            self.assertEqual(first['torso_surface_refinement']['rejection_kind'], 'quality')
+            self.assertFalse(first['torso_surface_refinement']['applied'])
+            apply_scan_polish(self.path, False, True, axis='x')
+            self.assertEqual(refine.call_count, 2)
+
+    def test_unexpected_failure_remains_retryable(self):
+        with patch('scan_polish_pipeline.refine_torso', side_effect=OSError('temporary read problem')) as refine:
+            apply_scan_polish(self.path, False, True)
+            result = apply_scan_polish(self.path, False, True)
+        self.assertEqual(refine.call_count, 2)
+        self.assertEqual(result['torso_surface_refinement']['status'], 'failed')
+
+
+class TorsoSectionChecks(unittest.TestCase):
+    def cylinder(self, tiny_edge=False, open_seam=False):
+        angles = np.linspace(0, 2*np.pi, 65) if open_seam else np.linspace(0, 2*np.pi, 64, endpoint=False)
+        if tiny_edge:
+            angles = np.sort(np.r_[angles, 1e-8])
+        count = len(angles)
+        vertices = np.array([[x, 50*np.cos(a), 40*np.sin(a)]
+                             for x in (0, 50, 100) for a in angles])
+        faces = []
+        for ring in range(2):
+            for i in range(count-1 if open_seam else count):
+                j = (i+1) % count
+                a, b, c, d = ring*count+i, ring*count+j, (ring+1)*count+i, (ring+1)*count+j
+                faces.extend([(a, b, c), (b, d, c)])
+        return o3d.geometry.TriangleMesh(o3d.utility.Vector3dVector(vertices),
+                                        o3d.utility.Vector3iVector(np.array(faces)))
+
+    def test_short_edges_do_not_turn_closed_contours_into_branches(self):
+        contours = sections(self.cylinder(tiny_edge=True), [25., 75.], np.array([50., 0., 0.]))
+        for contour in contours:
+            self.assertIsNotNone(contour)
+            self.assertAlmostEqual(contour['width_mm'], 100., places=6)
+            self.assertAlmostEqual(contour['depth_mm'], 80., places=6)
+
+    def test_exact_vertex_level_and_empty_slice(self):
+        contours = sections(self.cylinder(), [50., 150.], np.array([50., 0., 0.]))
+        self.assertIsNotNone(contours[0])
+        self.assertIsNone(contours[1])
+
+    def test_coincident_unconnected_seam_remains_open(self):
+        # Coincident endpoints must not be welded: the input topology has a real seam.
+        self.assertIsNone(sections(self.cylinder(open_seam=True), [25.], np.array([50., 0., 0.]))[0])
+
+
+class TorsoCandidateChecks(unittest.TestCase):
+    def test_later_invalid_contour_keeps_earlier_pass(self):
+        mesh = o3d.geometry.TriangleMesh.create_sphere(radius=50, resolution=8)
+        mesh.compute_vertex_normals()
+        xyz = np.asarray(mesh.vertices)
+        n = len(xyz)
+        valid = [{'width_mm': 90., 'depth_mm': 90., 'perimeter_mm': 280.} for _ in range(7)]
+        with ExitStack() as stack:
+            stack.enter_context(patch('scan_polish.region', return_value=(np.ones(n), np.ones(n, bool),
+                np.empty((0, 2), int), csr_matrix((n, n)), np.ones(n))))
+            stack.enter_context(patch('scan_polish.distances', return_value=np.ones(120)))
+            stack.enter_context(patch('scan_polish.face_quality', side_effect=[{'normal_angle_p90_deg': 10.},
+                {'normal_angle_p90_deg': 7.}, {'normal_angle_p90_deg': 6.}]))
+            stack.enter_context(patch('scan_polish.sections', side_effect=[valid, valid, [None]*7]))
+            stack.enter_context(patch('scan_polish.intersection_blocks', return_value=[]))
+            stack.enter_context(patch('scan_polish.intersection_pairs', return_value=set()))
+            stack.enter_context(patch('scan_polish.propose', side_effect=[copy.deepcopy(mesh), copy.deepcopy(mesh)]))
+            _, result, _ = refine_torso(mesh, xyz.copy(), {}, axis='x')
+        self.assertTrue(result['applied'])
+        self.assertEqual(result['selected_index'], 0)
+        self.assertTrue(result['candidates'][0]['accepted'])
+        self.assertFalse(result['candidates'][1]['accepted'])
+        self.assertFalse(result['candidates'][1]['retryable'])
 
 
 if __name__ == '__main__':

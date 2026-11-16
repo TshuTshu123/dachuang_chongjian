@@ -3,7 +3,6 @@
 从同次 intermediate 重放拓扑清理和鞋底，另存 *_segmentation_only，旧模型保留。
 """
 import argparse
-import copy
 from datetime import datetime
 import json
 from pathlib import Path

@@ -23,7 +23,7 @@ def metrics(mesh,raw,samples,edges,mask,face):
 
 
 def prepare_quality(mesh,raw,parts,target='surface'):
-    v=np.asarray(mesh.vertices);f=np.asarray(mesh.triangles);tree=cKDTree(v);rng=np.random.default_rng(7)
+    v=np.asarray(mesh.vertices);tree=cKDTree(v);rng=np.random.default_rng(7)
     weights,face,edges=regions(mesh,parts,target);mask=weights>.1
     supported=tree.query(raw,workers=4)[1];selected=raw[mask[supported]]
     if not len(selected):

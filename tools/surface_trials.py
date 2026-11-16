@@ -6,11 +6,9 @@
 from pathlib import Path
 import sys
 ROOT=Path(__file__).resolve().parents[1];sys.path.insert(0,str(ROOT))
-import argparse,copy,json,time
+import argparse,json,time
 import numpy as np
 import open3d as o3d
-from scipy.spatial import cKDTree
-from scipy.sparse import coo_matrix
 from PIL import Image,ImageDraw
 from surface_evaluation import prepare_quality,assess_surface
 from body_parts import file_hash
@@ -39,10 +37,10 @@ def trial(parent,methods,target='surface'):
     started=time.perf_counter();paths=sorted(parent.glob('*/report.json'))
     path=next(p for p in reversed(paths) if (p.parent/json.loads(p.read_text(encoding='utf-8'))['artifacts']['ply']['name']).is_file())
     report=json.loads(path.read_text(encoding='utf-8'));source=path.parent/report['artifacts']['ply']['name'];digest=file_hash(source)
-    mesh=o3d.io.read_triangle_mesh(str(source));mesh.compute_vertex_normals();v=np.asarray(mesh.vertices);f=np.asarray(mesh.triangles)
+    mesh=o3d.io.read_triangle_mesh(str(source));mesh.compute_vertex_normals();v=np.asarray(mesh.vertices)
     info=json.loads((path.parent/'body_parts.json').read_text(encoding='utf-8'));assert info['mesh']['sha256']==digest;parts=info.get('parts',{})
     raw=np.asarray(o3d.io.read_point_cloud(report['source']).points).copy();raw*=1000 if report['fingerprint']['unit']=='m' else 1
-    raw=raw[np.isfinite(raw).all(1)];tree=cKDTree(v);rng=np.random.default_rng(7)
+    raw=raw[np.isfinite(raw).all(1)]
     # Pilot proposals give a fixed active region shared by every candidate.
     context=prepare_quality(mesh,raw,parts,target);before=context['before'];face=context['face']
     out=(ROOT/'outputs/experiments/surface_quality'/parent.name if target=='surface'

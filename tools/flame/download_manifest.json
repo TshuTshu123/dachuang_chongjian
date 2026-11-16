@@ -1,0 +1,16 @@
+{
+  "source": "Official FLAME download authorized by user; temporary token intentionally omitted",
+  "source_page": "https://flame.is.tue.mpg.de/",
+  "license_page": "https://flame.is.tue.mpg.de/modellicense.html",
+  "downloaded_model": "FLAME 2023 Open",
+  "archive": {
+    "name": "FLAME2023Open.zip",
+    "bytes": 47586229,
+    "sha256": "a6b4c3dc15d569d98136a1e548b6fe532eb2830ca12a4f0d4b3a5dba8ee87a91"
+  },
+  "model": {
+    "name": "flame2023_Open.pkl",
+    "bytes": 53023668,
+    "sha256": "e75a0990728ba038c7da2a420ae4396f7ddd7781366c13026066c5b24f127623"
+  }
+}

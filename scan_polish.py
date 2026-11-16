@@ -13,6 +13,10 @@ from tools.torso_surface_trial import region, propose, face_quality, sections
 from surface_evaluation import distances
 
 
+class QualityRejection(ValueError):
+    """Deterministic geometry rejection; unchanged inputs may reuse it."""
+
+
 def refine_mano_surface(original, raw, parts, fit, palm_by):
     n_original = len(original.vertices)
     frame_by={p['part']:p for p in fit['parts']}
@@ -186,7 +190,7 @@ def refine_torso(mesh, raw, parts, axis='auto', up_sign=1):
     extent = np.ptp(world_xyz, axis=0)
     order = np.argsort(extent)
     if axis == 'auto' and extent[order[-1]] < 1.3 * extent[order[-2]]:
-        raise ValueError('Torso vertical axis ambiguous; specify --seg-axis.')
+        raise QualityRejection('Torso vertical axis ambiguous; specify --seg-axis.')
     up = int(order[-1]) if axis == 'auto' else 'xyz'.index(axis)
     rotation = np.eye(3)[:, [up, (up+1)%3, (up+2)%3]].copy()
     rotation[:, 0] *= up_sign
@@ -202,24 +206,26 @@ def refine_torso(mesh, raw, parts, axis='auto', up_sign=1):
     weight, allowed, edges, graph, degree = region(mesh, parts)
     active = weight > 0
     if active.sum() < 100 or (weight > .9).sum() < 100:
-        raise ValueError('Insufficient torso region')
+        raise QualityRejection('Insufficient torso region')
     mask = weight > .9
     nearest = cKDTree(v).query(raw, workers=4)[1]
     selected = raw[mask[nearest]]
     samples = selected[np.random.default_rng(63).choice(len(selected), min(8000, len(selected)), replace=False)]
     if len(samples) < 100:
-        raise ValueError('Insufficient torso observations')
+        raise QualityRejection('Insufficient torso observations')
     before_distance = distances(mesh, samples)
     before = face_quality(mesh, mask, edges)
     points = v[allowed]
     center = (points.min(0) + points.max(0)) / 2
     levels = np.linspace(*np.quantile(points[:, 0], [.2, .7]), 7)
     base_sections = sections(mesh, levels, center)
+    if any(section is None for section in base_sections):
+        raise QualityRejection('Torso input diagnostic contours incomplete')
     blocks = intersection_blocks(mesh, active, margin_mm=7.)
     base_pairs = intersection_pairs(mesh, blocks)
     cross = np.cross(v[f[:, 1]] - v[f[:, 0]], v[f[:, 2]] - v[f[:, 0]])
     records, candidates, names = [], [mesh], ['Input']
-    for radius, cap in ((12., 1.5), (20., 3.)):
+    def assess(radius, cap):
         candidate = propose(mesh, weight, radius, cap)
         delta = np.asarray(candidate.vertices) - v
         reduced = np.zeros(len(v), bool)
@@ -255,7 +261,7 @@ def refine_torso(mesh, raw, parts, axis='auto', up_sign=1):
         changes = [{key: b[key] - a[key] for key in ('width_mm', 'depth_mm', 'perimeter_mm')}
                    for a, b in zip(base_sections, candidate_sections) if a and b]
         if len(changes) != len(levels):
-            raise ValueError('Torso diagnostic contours incomplete')
+            raise QualityRejection('Torso candidate diagnostic contours incomplete')
         max_width = max(abs(c['width_mm']) for c in changes)
         max_depth = max(abs(c['depth_mm']) for c in changes)
         perimeter_ratio = max(abs(b['perimeter_mm']/a['perimeter_mm'] - 1)
@@ -276,14 +282,26 @@ def refine_torso(mesh, raw, parts, axis='auto', up_sign=1):
                   'movement_max_mm': float(np.linalg.norm(delta, axis=1).max()),
                   'locally_reduced_vertices': int(reduced.sum()), 'flipped_faces': flips,
                   'new_local_intersections': len(extra)}
+        return candidate, record
+
+    for radius, cap in ((12., 1.5), (20., 3.)):
+        try:
+            candidate, record = assess(radius, cap)
+        except (ValueError, RuntimeError) as error:
+            candidate = None
+            record = {"radius_mm": radius, "cap_mm": cap, "accepted": False,
+                      "reason": str(error), "exception_type": type(error).__name__,
+                      "retryable": not isinstance(error, QualityRejection)}
         records.append(record)
         candidates.append(candidate)
-        names.append(f'Quadratic {radius:g}mm / cap {cap:g}mm [{"PASS" if accepted else "REJECTED"}]')
-        print('Torso', str({k: record[k] for k in ('radius_mm', 'accepted', 'normal_angle_p90_decrease_percent',
-              'movement_max_mm', 'max_width_change_mm', 'max_depth_change_mm', 'max_perimeter_change_percent',
-              'flipped_faces', 'new_local_intersections')}), flush=True)
+        names.append(f"Quadratic {radius:g}mm [{record['accepted']}]")
+        print("Torso", str({key: record[key] for key in ("radius_mm", "accepted", "reason",
+              "normal_angle_p90_decrease_percent", "movement_max_mm") if key in record}), flush=True)
     passing = [i for i, r in enumerate(records) if r['accepted']]
     choice = max(passing, key=lambda i: records[i]['normal_angle_p90_decrease_percent']) if passing else None
+    if choice is None and any(record.get('retryable') for record in records):
+        raise RuntimeError('No torso candidate passed; unexpected candidate error: ' +
+                           '; '.join(record.get('reason', '') for record in records if record.get('retryable')))
     candidate = candidates[choice+1] if choice is not None else original
     if rotated and choice is not None:
         positions = world_xyz.copy()
@@ -293,6 +311,8 @@ def refine_torso(mesh, raw, parts, axis='auto', up_sign=1):
     return candidate, {'status': 'complete', 'applied': choice is not None,
         'method': 'area-weighted robust local quadratic surface fitting', 'topology_changed': False,
         'candidates': records, 'selected_index': choice, 'active_vertices': int(active.sum()),
+        'diagnostic_section_method': 'mesh_edge_identity_without_coordinate_welding',
+        'diagnostic_section_count': len(levels),
         'boundary_buffer_mm': [2, 12], 'unknown_label_extension_geodesic_mm': 60,
         'axis': 'xyz'[up], 'up_sign': up_sign, 'manual_measurement_landmarks': 'not_generated',
         'note': 'Diagnostic contours are not anatomical landmarks; raw consistency is not measurement accuracy.'}, parts

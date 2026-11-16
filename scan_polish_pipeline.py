@@ -15,7 +15,16 @@ import open3d as o3d
 
 from body_parts import file_hash
 from ply_to_obj import convert_ply_to_obj
-from scan_polish import refine_mano_surface, refine_wrists, refine_torso
+from scan_polish import refine_mano_surface, refine_wrists, refine_torso, QualityRejection
+
+
+def rejection_key(report, raw_unit, axis, up_sign):
+    """Only deterministic refusals are memoized; I/O/publication errors retry."""
+    root = Path(__file__).resolve().parent
+    return {'source_sha256': file_hash(report['source']), 'axis': axis, 'up_sign': up_sign,
+            'raw_unit': raw_unit, 'pipeline_fingerprint': report.get('fingerprint', {}),
+            'code': {name: file_hash(root/name) for name in
+                     ('scan_polish.py', 'scan_polish_pipeline.py', 'tools/torso_surface_trial.py')}}
 
 
 def publish_step(path, report, data, original, candidate, parts, result, field):
@@ -149,7 +158,11 @@ def apply_scan_polish(report_path, hand_enabled=True, torso_enabled=True, raw_un
     stages = (('mano_surface_refinement', hand_enabled), ('wrist_alignment', hand_enabled),
               ('torso_surface_refinement', torso_enabled))
     for field, enabled in stages:
-        if report.get(field, {}).get('status') == 'complete':
+        previous = report.get(field, {})
+        reusable = previous.get('status') == 'complete'
+        if reusable and previous.get('rejection_kind') == 'quality':
+            reusable = previous.get('rejection_key') == rejection_key(report, raw_unit, axis, up_sign)
+        if reusable:
             print(field + ': reusing completed result (no repeated modification).', flush=True)
             continue
         reason = None
@@ -187,12 +200,22 @@ def apply_scan_polish(report_path, hand_enabled=True, torso_enabled=True, raw_un
                     scanmesh = o3d.io.read_triangle_mesh(str(path.parent/report['artifacts']['base']['name']))
                     candidate, result, parts = refine_wrists(original, raw, data['parts'], fit, scanmesh)
             result['elapsed_seconds'] = round(time.perf_counter()-started, 3)
+            if field == 'torso_surface_refinement' and not result['applied']:
+                result.update(rejection_kind='quality',
+                              rejection_key=rejection_key(report, raw_unit, axis, up_sign))
             if result['applied']:
                 report = publish_step(path, report, data, original, candidate, parts, result, field)
             else:
                 report[field] = result
                 path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
             print(field, 'applied' if result['applied'] else 'previous geometry retained', flush=True)
+        except QualityRejection as error:
+            report[field] = {'status': 'complete', 'applied': False, 'reason': str(error),
+                             'rejection_kind': 'quality', 'previous_geometry_retained': True,
+                             'rejection_key': rejection_key(report, raw_unit, axis, up_sign),
+                             'elapsed_seconds': round(time.perf_counter()-started, 3)}
+            path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
+            print(field, 'checked rejection retained:', error, flush=True)
         except Exception as error:
             report[field] = {'status': 'failed', 'applied': False, 'reason': str(error),
                              'previous_geometry_retained': True, 'elapsed_seconds': round(time.perf_counter()-started, 3)}

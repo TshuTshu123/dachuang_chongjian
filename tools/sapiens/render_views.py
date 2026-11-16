@@ -4,7 +4,7 @@
 只保存小体积图片及相机/输入哈希；三维映射需要时可重建同一组射线。
 """
 from pathlib import Path
-import copy,hashlib,json
+import hashlib,json
 import numpy as np,open3d as o3d
 from PIL import Image
 ROOT=Path(__file__).resolve().parents[2]

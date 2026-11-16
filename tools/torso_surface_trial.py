@@ -143,29 +143,46 @@ def face_quality(mesh, mask, edges):
 
 
 def sections(mesh, levels, center):
-    """Exact horizontal intersections; choose the largest closed contour near torso.
+    """Intersect using mesh-edge identity, without rounding/welding nearby points.
 
-    These repeatable diagnostic levels are not anatomical measurement landmarks.
+    Very short segments are legitimate on dense meshes. Coordinate rounding can
+    collapse one into a self-loop and reject an otherwise closed torso contour.
+    Shared mesh edges (or an exact on-plane vertex) identify endpoints instead.
+    Actual open/branched contours remain invalid; no gaps are filled here.
+    These diagnostic levels are not anatomical measurement landmarks.
     """
     v = np.asarray(mesh.vertices)
     f = np.asarray(mesh.triangles)
-    p = v[f]
+    height = v[:, 0]
+    minimum = height[f].min(1)
+    maximum = height[f].max(1)
     result = []
     for level in levels:
-        q = p[(p[:, :, 0].min(1) < level) & (p[:, :, 0].max(1) > level)]
-        segments = []
-        for tri in q:
-            points = []
-            for a, b in ((0, 1), (1, 2), (2, 0)):
-                if (tri[a, 0] < level) != (tri[b, 0] < level):
-                    t = (level - tri[a, 0]) / (tri[b, 0] - tri[a, 0])
-                    points.append((tri[a] + t * (tri[b] - tri[a]))[1:])
-            if len(points) == 2:
+        triangles = f[(minimum < level) & (maximum >= level)]
+        segments, keys = [], []
+        for tri in triangles:
+            points, endpoints = [], []
+            for i, j in ((0, 1), (1, 2), (2, 0)):
+                a, b = int(tri[i]), int(tri[j])
+                if (height[a] < level) == (height[b] < level):
+                    continue
+                # Canonical edge order also makes interpolation identical across faces.
+                a, b = min(a, b), max(a, b)
+                t = (level - height[a]) / (height[b] - height[a])
+                points.append((v[a] + t * (v[b] - v[a]))[1:])
+                endpoints.append((0, a, a) if height[a] == level else
+                                 (0, b, b) if height[b] == level else (1, a, b))
+            if len(points) == 2 and endpoints[0] != endpoints[1]:
                 segments.append(points)
+                keys.extend(endpoints)
+        if not segments:
+            result.append(None)
+            continue
         seg = np.asarray(segments)
-        _, inv = np.unique(np.round(seg.reshape(-1, 2), 5), axis=0, return_inverse=True)
-        ends = inv.reshape(-1, 2)
-        graph = coo_matrix((np.ones(len(ends)*2), (np.r_[ends[:, 0], ends[:, 1]], np.r_[ends[:, 1], ends[:, 0]]))).tocsr()
+        _, inverse = np.unique(np.asarray(keys), axis=0, return_inverse=True)
+        ends = inverse.reshape(-1, 2)
+        graph = coo_matrix((np.ones(len(ends)*2),
+            (np.r_[ends[:, 0], ends[:, 1]], np.r_[ends[:, 1], ends[:, 0]]))).tocsr()
         _, group = connected_components(graph, directed=False)
         contours = []
         for label in np.unique(group):
@@ -174,7 +191,8 @@ def sections(mesh, levels, center):
             if len(points) < 20 or np.linalg.norm(np.mean(points, axis=0) - center[1:]) > 120:
                 continue
             nodes = np.unique(ends[chosen])
-            if np.any(np.asarray((graph[nodes][:, nodes] != 0).sum(1)).ravel() != 2):
+            # Count incident segments, including duplicates, to reject branching.
+            if np.any(np.asarray(graph[nodes][:, nodes].sum(1)).ravel() != 2):
                 continue
             contours.append({'level_x_mm': float(level),
                              'width_mm': float(np.ptp(points[:, 0])), 'depth_mm': float(np.ptp(points[:, 1])),
